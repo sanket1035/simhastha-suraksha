@@ -5,55 +5,43 @@
 > सिंहस्थ सुरक्षा: गर्दीवर एआयची नजर
 
 
+![Python](https://img.shields.io/badge/Python-3.x-3776AB?style=flat-square&logo=python&logoColor=white)
 
-![Python](https://img.shields.io/badge/Python-3.x-3776AB?logo=python&logoColor=white)
+ 
 
+![PyTorch](https://img.shields.io/badge/PyTorch-Deep_Learning-EE4C2C?style=flat-square&logo=pytorch&logoColor=white)
 
+ 
 
+![OpenCV](https://img.shields.io/badge/OpenCV-Vision-5C3EE8?style=flat-square&logo=opencv&logoColor=white)
 
-![PyTorch](https://img.shields.io/badge/PyTorch-Deep%20Learning-EE4C2C?logo=pytorch&logoColor=white)
+ 
 
+![Model](https://img.shields.io/badge/Model-CSRNet_VGG16-8A2BE2?style=flat-square)
 
+ 
 
+![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)
 
-![OpenCV](https://img.shields.io/badge/OpenCV-Vision-5C3EE8?logo=opencv&logoColor=white)
+ 
 
+![WandB](https://img.shields.io/badge/WandB-Tracked-FFBE00?style=flat-square)
 
+ 
 
+![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker&logoColor=white)
 
-![Model](https://img.shields.io/badge/Model-CSRNet%20(VGG16)
+ 
 
--8A2BE2)
+![Hugging Face](https://img.shields.io/badge/Hugging_Face-Spaces-FFD21E?style=flat-square&logo=huggingface&logoColor=black)
 
+ 
 
-![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?logo=streamlit&logoColor=white)
+![Status](https://img.shields.io/badge/Status-In_Development-orange?style=flat-square)
 
+ 
 
-
-
-![W&B](https://img.shields.io/badge/Weights%20%26%20Biases-Tracked-FFBE00?logo=weightsandbiases&logoColor=black)
-
-
-
-
-![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)
-
-
-
-
-![Hugging Face](https://img.shields.io/badge/Hugging%20Face-Spaces-FFD21E?logo=huggingface&logoColor=black)
-
-
-
-
-![Status](https://img.shields.io/badge/Status-In%20Development-orange)
-
-
-
-
-![License](https://img.shields.io/badge/License-MIT-yellow)
-
-
+![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
 
 > 🚀 **Live Demo →** Coming soon
 
