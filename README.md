@@ -183,11 +183,12 @@ simhastha-suraksha/
 ## Team
 
 | Member | Responsibility |
-|---|---|
-| Atharv | Dataset preparation and baseline models |
-| Sanket | CSRNet training and hyperparameter tuning |
-| Purva | Risk-assessment logic and evaluation |
-| Rahil | Dashboard and deployment |
+|--------|----------------|
+| Atharv | Dataset preparation, baseline models, regularization and activation experiments, hyperparameter sweeps |
+| Sanket | CSRNet implementation and training, model export |
+| Purva | Risk-assessment logic, evaluation, failure analysis, project report |
+| Rahil | Dashboard, Docker deployment, README, demo video |
+
 
 ## Project Status
 
