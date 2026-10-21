@@ -1,0 +1,10 @@
+.git
+data
+runs
+wandb
+notebooks
+tests
+docs
+__pycache__
+*.pth
+*.pt

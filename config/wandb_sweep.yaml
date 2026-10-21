@@ -1,0 +1,28 @@
+# Hyperparameter sweep for CSRNet with Weights and Biases.
+#   wandb sweep config/wandb_sweep.yaml          (prints a sweep id)
+#   wandb agent <entity>/<project>/<sweep id>    (run on the GPU machine)
+# Edit --train-index to your processed index. Keep epochs small for sweeps.
+program: src.train
+method: random
+metric:
+  name: val_mae
+  goal: minimize
+parameters:
+  lr:
+    values: [0.0001, 0.00001, 0.000001]
+  optimizer:
+    values: [adam, sgd]
+  weight_decay:
+    values: [0.0, 0.0001]
+command:
+  - ${env}
+  - python
+  - -m
+  - src.train
+  - --model=csrnet
+  - --train-index=data/processed/part_A/train_index.csv
+  - --out=runs/sweep
+  - --epochs=15
+  - --amp
+  - --wandb
+  - ${args}

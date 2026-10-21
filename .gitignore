@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ipynb_checkpoints/
+.DS_Store
+
+# data, runs and model weights stay out of git
+data/
+runs/
+wandb/
+*.pth
+*.pt
+*.onnx
+!models/.gitkeep

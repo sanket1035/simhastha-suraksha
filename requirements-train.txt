@@ -1,0 +1,7 @@
+# Extra packages for training (Kaggle / Colab). Install after requirements.txt.
+-r requirements.txt
+torch>=2.0
+torchvision>=0.15
+wandb
+matplotlib
+scikit-learn

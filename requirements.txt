@@ -1,0 +1,9 @@
+# Runtime for the dashboard and inference (CPU only, lightweight). Used by Streamlit Cloud and Docker.
+numpy>=1.24
+scipy>=1.10
+opencv-python-headless>=4.8
+Pillow>=10.0
+onnxruntime>=1.16
+PyYAML>=6.0
+pandas>=2.0
+streamlit>=1.30

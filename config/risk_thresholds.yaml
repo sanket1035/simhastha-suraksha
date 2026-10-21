@@ -1,0 +1,6 @@
+# Density thresholds in people per square metre.
+# PLACEHOLDERS based on common crowd-safety rules of thumb. Validate before real use.
+thresholds:
+  medium: 1.0
+  high: 2.5
+  critical: 4.0
