@@ -146,22 +146,12 @@ Datasets are not included in this repository. Download them from their original 
 - This is a **decision-support aid**. It does not replace administrative or police judgement.
 - It counts people in aggregate and does not identify individuals.
 
-## Roadmap
-
-- [x] Code for density maps, MLP/CNN/CSRNet, training, evaluation, ONNX export, risk logic, dashboard and Docker (unit-tested where no GPU is needed; **not yet trained or run on real data**)
-- [ ] Train and evaluate on ShanghaiTech (MAE, RMSE)
-- [ ] Validate risk thresholds
-- [ ] Public deployment
-- [ ] Screenshots and demo video
-
 ## Team
 
-| Member | Responsibility |
-|--------|----------------|
-| Atharv | Dataset preparation, baseline models, regularization and activation experiments, hyperparameter sweeps |
-| Sanket | CSRNet implementation and training, model export |
-| Purva | Risk-assessment logic, evaluation, failure analysis, project report |
-| Rahil | Dashboard, Docker deployment, README, demo video |
+- Atharv
+- Sanket
+- Purva
+- Rahil
 
 ## License
 
