@@ -25,15 +25,16 @@ from src.risk import LEVELS, load_thresholds  # noqa: E402
 
 # Placeholder areas in square metres. Measure the real visible ground area per camera.
 ZONES = {"Ramkund": 200.0, "Panchvati": 300.0, "Trimbakeshwar": 250.0}
-# Approximate centre points (lat, lon). PLACEHOLDERS: set to the real camera locations before use.
-ZONE_GEO = {"Ramkund": (19.9996, 73.7922), "Panchvati": (20.0067, 73.7917), "Trimbakeshwar": (19.9322, 73.5309)}
+# Centre points (lat, lon): Ramkund = Ram Ghat on the Godavari, Panchvati = Kalaram Temple area, Trimbakeshwar =
+# the temple. Looked up from public sources; set them to the real camera locations before use.
+ZONE_GEO = {"Ramkund": (20.0077, 73.7921), "Panchvati": (20.0069, 73.7950), "Trimbakeshwar": (19.9322, 73.5309)}
 IMAGE_TYPES = ["jpg", "jpeg", "png"]
 VIEW_MODES = ["Heatmap overlay", "Heat only", "Original"]
 # Level colours chosen to sit on the cream/aubergine palette while staying distinguishable.
 LEVEL_COLORS = {"Low": "#2E8B6A", "Medium": "#E39A00", "High": "#D4571C", "Critical": "#B3261E"}
 
 
-st.set_page_config(page_title="Simhastha Suraksha", page_icon="🔱", layout="wide")
+st.set_page_config(page_title="Simhastha Suraksha", page_icon="🔱", layout="wide", initial_sidebar_state="collapsed")
 
 CSS = """
 <style>
@@ -165,8 +166,8 @@ Z.forEach(function(z){
   L.marker([z.lat,z.lon],{interactive:false,icon:L.divIcon({className:'pin',html:z.zone,iconAnchor:[-14,6]})}).addTo(map);
 });
 function fit(list){map.fitBounds(list,{padding:[60,60],maxZoom:15});}
-fit(pts);
 var core=pts.filter(function(p){return p[1]>73.7;});
+fit(core.length>1?core:pts);
 var bar=L.control({position:'topright'});
 bar.onAdd=function(){var d=L.DomUtil.create('div','leaflet-bar');
   d.innerHTML='<a href="#" style="width:auto;padding:0 10px;font:600 12px/30px Inter,sans-serif" id="b1">Nashik ghats</a>'+
@@ -232,20 +233,24 @@ def pilgrim_view(store):
 
 
 def control_view(store):
-    with st.sidebar:
-        st.markdown("### 📷 Add a camera photo")
-        zone = st.selectbox("Zone", list(ZONES))
-        area = st.number_input("Visible ground area (m²)", min_value=1.0, value=ZONES[zone], step=10.0,
+    with st.container(border=True):
+        st.markdown('<div class="lab">Add a camera photo</div>', unsafe_allow_html=True)
+        c1, c2 = st.columns([1, 1])
+        zone = c1.selectbox("Zone", list(ZONES))
+        area = c2.number_input("Visible ground area (m²)", min_value=1.0, value=ZONES[zone], step=10.0,
                                key="area_" + zone, help="Measure the ground area this camera actually sees.")
         files = st.file_uploader("Upload one or more photos", type=IMAGE_TYPES, accept_multiple_files=True,
                                  key="up_%d" % st.session_state.setdefault("uploader_n", 0))
-        st.markdown("---")
-        st.markdown("**Risk thresholds** (people per m²)")
-        st.markdown("Medium ≥ %.1f · High ≥ %.1f · Critical ≥ %.1f" %
+    with st.expander("Settings and account"):
+        st.markdown("**Risk thresholds** (people per m²): Medium ≥ %.1f · High ≥ %.1f · Critical ≥ %.1f" %
                     (thresholds["medium"], thresholds["high"], thresholds["critical"]))
         st.caption("Placeholders. Edit config/risk_thresholds.yaml.")
-        if st.button("Clear dashboard", use_container_width=True):
+        b1, b2 = st.columns(2)
+        if b1.button("Clear dashboard", use_container_width=True):
             store.clear()
+            st.rerun()
+        if b2.button("Sign out", use_container_width=True):
+            st.session_state["staff"] = False
             st.rerun()
 
     if files:
@@ -265,7 +270,7 @@ def control_view(store):
         stat("Highest risk", worst, "across zones", LEVEL_COLORS.get(worst)),
         stat("Alerts", len(alerts), "level changes")), unsafe_allow_html=True)
     if not records:
-        st.markdown('<div class="empty"><h3>No photos yet</h3>Pick a zone in the sidebar and upload a crowd '
+        st.markdown('<div class="empty"><h3>No photos yet</h3>Pick a zone above and upload a crowd '
                     'photo. The public dashboard updates at the same time.</div>', unsafe_allow_html=True)
         return
 
@@ -317,24 +322,20 @@ thresholds = load_thresholds()
 store = get_store()
 live = backend_name() == "onnx"
 
-with st.sidebar:
+def staff_login():
+    """Shown in the page body (not the sidebar, which is hidden on phones)."""
     pw = staff_password()
-    if st.session_state.get("staff"):
-        st.success("Control room: signed in")
-        if st.button("Sign out"):
-            st.session_state["staff"] = False
-            st.rerun()
-    else:
-        with st.expander("🔒 Staff login (police, volunteers, control room)"):
-            if not pw:
-                st.caption("Staff login is not configured. Set SS_STAFF_PASSWORD on the server.")
-            else:
-                entered = st.text_input("Password", type="password")
-                if st.button("Sign in") and hmac.compare_digest(entered.encode(), pw.encode()):
-                    st.session_state["staff"] = True
-                    st.rerun()
-                elif entered:
-                    st.caption("Wrong password.")
+    with st.expander("🔒 Staff login (police, volunteers, control room)"):
+        if not pw:
+            st.caption("Staff login is not configured. Set SS_STAFF_PASSWORD on the server.")
+            return
+        entered = st.text_input("Password", type="password")
+        if st.button("Sign in"):
+            if hmac.compare_digest(entered.encode(), pw.encode()):
+                st.session_state["staff"] = True
+                st.rerun()
+            st.caption("Wrong password.")
+
 
 if st.session_state.get("staff"):
     header(live, "Control room", "Crowd <em>command</em>",
@@ -345,4 +346,5 @@ if st.session_state.get("staff"):
 else:
     header(live, "Live crowd status", "सिंहस्थ <em>Suraksha</em>",
            "Know how busy each ghat is before you go. Updated from the cameras, in plain words.")
+    staff_login()
     pilgrim_view(store)
