@@ -1,11 +1,15 @@
 """Control-room dashboard (Streamlit).
 
 Run:  streamlit run app/app.py
-Upload a crowd photo for a zone; the dashboard updates with the count, density,
-risk level and a heatmap. Each upload is one snapshot, so zone cards, trend and
-alert log build up as photos come in.
+Two views over one shared store:
+  Pilgrim view   public, read-only: crowd level and a heatmap per zone, no raw photos.
+  Control room   staff login (SS_STAFF_PASSWORD): upload camera photos, full detail, alerts.
+Every uploaded photo updates the pilgrim view for all visitors within seconds.
 """
+import hmac
+import os
 import sys
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -102,130 +106,211 @@ def kpi(label, value, sub="", color="#E8ECF4"):
             '<div class="s">%s</div></div>' % (label, color, value, sub))
 
 
-_init_model()
-thresholds = load_thresholds()
-st.session_state.setdefault("records", [])
-st.session_state.setdefault("alerts", [])
-st.session_state.setdefault("uploader_n", 0)
-records = st.session_state["records"]
+class Store:
+    """Shared by every visitor (one per server process), so a staff upload shows up for the public."""
 
-# ---- sidebar: the only input is a photo ---------------------------------
-with st.sidebar:
-    st.markdown("### 📷 Add a camera photo")
-    zone = st.selectbox("Zone", list(ZONES))
-    area = st.number_input("Visible ground area (m²)", min_value=1.0, value=ZONES[zone], step=10.0,
-                           key="area_" + zone, help="Measure the ground area this camera actually sees.")
-    files = st.file_uploader("Upload one or more photos", type=IMAGE_TYPES, accept_multiple_files=True,
-                             key="up_%d" % st.session_state["uploader_n"])
-    st.markdown("---")
-    st.markdown("**Risk thresholds** (people per m²)")
-    st.markdown("Medium ≥ %.1f · High ≥ %.1f · Critical ≥ %.1f" %
-                (thresholds["medium"], thresholds["high"], thresholds["critical"]))
-    st.caption("Placeholders. Edit config/risk_thresholds.yaml.")
-    if records and st.button("Clear dashboard", use_container_width=True):
-        st.session_state["records"], st.session_state["alerts"] = [], []
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.records, self.alerts = [], []
+
+    def add(self, rec):
+        with self.lock:
+            prev = next((r for r in reversed(self.records) if r["zone"] == rec["zone"]), None)
+            if prev and prev["level"] != rec["level"]:
+                self.alerts.append({"Time": rec["ts"].strftime("%H:%M:%S"), "Zone": rec["zone"],
+                                    "Change": "%s → %s" % (prev["level"], rec["level"]),
+                                    "People": round(rec["count"])})
+            self.records.append(rec)
+            del self.records[:-MAX_RECORDS]
+
+    def clear(self):
+        with self.lock:
+            self.records, self.alerts = [], []
+
+    def snapshot(self):
+        with self.lock:
+            latest = {}
+            for r in self.records:
+                latest[r["zone"]] = r
+            return list(self.records), list(self.alerts), latest
+
+
+@st.cache_resource
+def get_store():
+    return Store()
+
+
+def staff_password():
+    pw = os.environ.get("SS_STAFF_PASSWORD", "")
+    if not pw:
+        try:
+            pw = st.secrets.get("SS_STAFF_PASSWORD", "")
+        except Exception:
+            pw = ""
+    return pw
+
+
+# Plain-language advice for the public. Wording is a placeholder for the control room to approve.
+ADVICE = {"Low": "Clear. Good time to visit.",
+          "Medium": "Moderately busy. Keep moving and stay with your group.",
+          "High": "Crowded. Consider waiting or using another ghat.",
+          "Critical": "Very crowded. Please avoid this area now and follow police directions."}
+
+
+def header(live, subtitle):
+    st.markdown(
+        '<div class="hero"><div><h1>सिंहस्थ Suraksha</h1><p>%s</p></div>'
+        '<span class="pill %s">%s</span></div>' %
+        (subtitle, "on" if live else "off", "● Model live" if live else "● Demo mode: simulated counts"),
+        unsafe_allow_html=True)
+
+
+def zone_card(z, r, detail):
+    if not r:
+        return ('<div class="zone" style="--c:#2C3858"><div class="n">%s</div>'
+                '<div class="m">Waiting for the first camera update</div></div>' % z)
+    extra = ("<b>%s</b> people · <b>%.2f</b>/m²" % ("{:,}".format(round(r["count"])), r["density"])
+             if detail else ADVICE[r["level"]])
+    return ('<div class="zone" style="--c:%s"><span class="b">%s</span><div class="n">%s</div>'
+            '<div class="m">%s</div><div class="m">Updated %s</div></div>' %
+            (LEVEL_COLORS[r["level"]], r["level"], z, extra, r["ts"].strftime("%H:%M:%S")))
+
+
+def pilgrim_view(store):
+    @st.fragment(run_every=10)
+    def live_board():
+        _, _, latest = store.snapshot()
+        if not latest:
+            st.markdown('<div class="empty"><h3>No live data yet</h3>Crowd updates will appear here as soon as '
+                        'the cameras report.</div>', unsafe_allow_html=True)
+            return
+        cols = st.columns(len(ZONES))
+        for col, (z, _a) in zip(cols, ZONES.items()):
+            with col:
+                st.markdown(zone_card(z, latest.get(z), detail=False), unsafe_allow_html=True)
+                if z in latest:
+                    # Heat only: no raw photo is ever shown to the public.
+                    st.image(latest[z]["heat"], use_container_width=True,
+                             caption="Brighter = more crowded")
+        st.caption("This page refreshes by itself every few seconds. Always follow the instructions of "
+                   "police and volunteers on site.")
+
+    live_board()
+
+
+def control_view(store):
+    with st.sidebar:
+        st.markdown("### 📷 Add a camera photo")
+        zone = st.selectbox("Zone", list(ZONES))
+        area = st.number_input("Visible ground area (m²)", min_value=1.0, value=ZONES[zone], step=10.0,
+                               key="area_" + zone, help="Measure the ground area this camera actually sees.")
+        files = st.file_uploader("Upload one or more photos", type=IMAGE_TYPES, accept_multiple_files=True,
+                                 key="up_%d" % st.session_state.setdefault("uploader_n", 0))
+        st.markdown("---")
+        st.markdown("**Risk thresholds** (people per m²)")
+        st.markdown("Medium ≥ %.1f · High ≥ %.1f · Critical ≥ %.1f" %
+                    (thresholds["medium"], thresholds["high"], thresholds["critical"]))
+        st.caption("Placeholders. Edit config/risk_thresholds.yaml.")
+        if st.button("Clear dashboard", use_container_width=True):
+            store.clear()
+            st.rerun()
+
+    if files:
+        with st.spinner("Analysing %d photo(s)..." % len(files)):
+            for f in files:
+                store.add(analyse(f, zone, area, thresholds))
+        st.session_state["focus"] = zone
+        st.session_state["uploader_n"] += 1
         st.rerun()
 
-if files:
-    with st.spinner("Analysing %d photo(s)..." % len(files)):
-        for f in files:
-            rec = analyse(f, zone, area, thresholds)
-            prev = next((r for r in reversed(records) if r["zone"] == zone), None)
-            if prev and prev["level"] != rec["level"]:
-                st.session_state["alerts"].append(
-                    {"Time": rec["ts"].strftime("%H:%M:%S"), "Zone": zone,
-                     "Change": "%s → %s" % (prev["level"], rec["level"]), "People": round(rec["count"])})
-            records.append(rec)
-    del records[:-MAX_RECORDS]
-    st.session_state["focus"] = zone
-    st.session_state["uploader_n"] += 1
-    st.rerun()
-
-latest = {}
-for r in records:
-    latest[r["zone"]] = r
-
-# ---- header ------------------------------------------------------------
-live = backend_name() == "onnx"
-st.markdown(
-    '<div class="hero"><div><h1>सिंहस्थ Suraksha</h1>'
-    '<p>Crowd density and risk alerts for the control room. Decision-support aid only; '
-    'it does not replace administrative or police judgement.</p></div>'
-    '<span class="pill %s">%s</span></div>' %
-    ("on" if live else "off", "● CSRNet model live" if live else "● Demo mode: simulated counts"),
-    unsafe_allow_html=True)
-
-if not live:
-    st.warning("No trained model found, so counts are simulated. Set SS_MODEL_URL (or add models/csrnet.onnx) "
-               "and reboot the app for real predictions.")
-
-# ---- KPIs --------------------------------------------------------------
-worst = max(latest.values(), key=lambda r: LEVELS.index(r["level"]))["level"] if latest else "-"
-total = sum(r["count"] for r in latest.values())
-c1, c2, c3, c4 = st.columns(4)
-c1.markdown(kpi("People in view", "{:,}".format(round(total)), "latest photo per zone"), unsafe_allow_html=True)
-c2.markdown(kpi("Zones reporting", "%d / %d" % (len(latest), len(ZONES)), "upload a photo to add one"),
-            unsafe_allow_html=True)
-c3.markdown(kpi("Highest risk", worst, "across zones", LEVEL_COLORS.get(worst, "#E8ECF4")), unsafe_allow_html=True)
-c4.markdown(kpi("Alerts", len(st.session_state["alerts"]), "level changes this session"), unsafe_allow_html=True)
-st.write("")
-
-if not records:
-    st.markdown('<div class="empty"><h3>No photos yet</h3>Pick a zone in the sidebar and upload a crowd photo. '
-                'The count, risk level and heatmap appear here instantly.</div>', unsafe_allow_html=True)
-    st.stop()
-
-# ---- focus zone: heatmap + risk card -------------------------------------
-focus = st.session_state.get("focus", zone)
-if focus not in latest:
-    focus = list(latest)[-1]
-names = list(latest)
-focus = st.radio("Zone", names, index=names.index(focus), horizontal=True, label_visibility="collapsed")
-cur = latest[focus]
-col = LEVEL_COLORS[cur["level"]]
-
-left, right = st.columns([2, 1])
-with left:
-    mode = st.radio("View", VIEW_MODES, horizontal=True, label_visibility="collapsed")
-    key = {"Heatmap overlay": "overlay", "Heat only": "heat", "Original": "original"}[mode]
-    st.image(cur[key], use_container_width=True,
-             caption="%s · %s · heat is relative to the densest spot in this photo" %
-                     (focus, cur["ts"].strftime("%H:%M:%S")))
-with right:
-    pos = min(cur["density"] / (thresholds["critical"] * 1.25), 1.0) * 100
-    st.markdown(
-        '<div class="big" style="--c:%s"><div class="l" style="color:#8E99B3;font-size:.74rem;'
-        'letter-spacing:1.2px">RISK LEVEL · %s</div><div class="lv">%s</div>'
-        '<div class="meter"><i style="left:calc(%.1f%% - 2px)"></i></div>'
-        '<div class="row"><div><b>%s</b>people</div><div><b>%.2f</b>per m²</div>'
-        '<div><b>%d m²</b>area</div></div></div>' %
-        (col, focus.upper(), cur["level"], pos, "{:,}".format(round(cur["count"])), cur["density"], cur["area"]),
-        unsafe_allow_html=True)
+    records, alerts, latest = store.snapshot()
+    worst = max(latest.values(), key=lambda r: LEVELS.index(r["level"]))["level"] if latest else "-"
+    total = sum(r["count"] for r in latest.values())
+    c1, c2, c3, c4 = st.columns(4)
+    c1.markdown(kpi("People in view", "{:,}".format(round(total)), "latest photo per zone"), unsafe_allow_html=True)
+    c2.markdown(kpi("Zones reporting", "%d / %d" % (len(latest), len(ZONES)), "upload a photo to add one"),
+                unsafe_allow_html=True)
+    c3.markdown(kpi("Highest risk", worst, "across zones", LEVEL_COLORS.get(worst, "#E8ECF4")),
+                unsafe_allow_html=True)
+    c4.markdown(kpi("Alerts", len(alerts), "level changes"), unsafe_allow_html=True)
     st.write("")
-    st.markdown("**Zones**")
-    for z in ZONES:
-        r = latest.get(z)
-        if r:
-            st.markdown('<div class="zone" style="--c:%s"><span class="b">%s</span><div class="n">%s</div>'
-                        '<div class="m"><b>%s</b> people · <b>%.2f</b>/m²</div></div>' %
-                        (LEVEL_COLORS[r["level"]], r["level"], z, "{:,}".format(round(r["count"])), r["density"]),
-                        unsafe_allow_html=True)
-        else:
-            st.markdown('<div class="zone" style="--c:#2C3858"><div class="n">%s</div>'
-                        '<div class="m">No photo yet</div></div>' % z, unsafe_allow_html=True)
+    if not records:
+        st.markdown('<div class="empty"><h3>No photos yet</h3>Pick a zone in the sidebar and upload a crowd '
+                    'photo. The public dashboard updates at the same time.</div>', unsafe_allow_html=True)
+        return
 
-# ---- trend + alerts ----------------------------------------------------------
-t1, t2 = st.columns([2, 1])
-with t1:
-    st.markdown("**Density over time** (people per m², each point is one photo)")
-    df = pd.DataFrame([{"n": i + 1, "zone": r["zone"], "density": r["density"]} for i, r in enumerate(records)])
-    if len(df) > 1:
-        st.line_chart(df.pivot_table(index="n", columns="zone", values="density"), height=240)
+    names = list(latest)
+    focus = st.session_state.get("focus", names[-1])
+    if focus not in latest:
+        focus = names[-1]
+    focus = st.radio("Zone", names, index=names.index(focus), horizontal=True, label_visibility="collapsed")
+    cur = latest[focus]
+    left, right = st.columns([2, 1])
+    with left:
+        mode = st.radio("View", VIEW_MODES, horizontal=True, label_visibility="collapsed")
+        key = {"Heatmap overlay": "overlay", "Heat only": "heat", "Original": "original"}[mode]
+        st.image(cur[key], use_container_width=True,
+                 caption="%s · %s · heat is relative to the densest spot in this photo" %
+                         (focus, cur["ts"].strftime("%H:%M:%S")))
+    with right:
+        pos = min(cur["density"] / (thresholds["critical"] * 1.25), 1.0) * 100
+        st.markdown(
+            '<div class="big" style="--c:%s"><div class="l" style="color:#8E99B3;font-size:.74rem;'
+            'letter-spacing:1.2px">RISK LEVEL · %s</div><div class="lv">%s</div>'
+            '<div class="meter"><i style="left:calc(%.1f%% - 2px)"></i></div>'
+            '<div class="row"><div><b>%s</b>people</div><div><b>%.2f</b>per m²</div>'
+            '<div><b>%d m²</b>area</div></div></div>' %
+            (LEVEL_COLORS[cur["level"]], focus.upper(), cur["level"], pos, "{:,}".format(round(cur["count"])),
+             cur["density"], cur["area"]), unsafe_allow_html=True)
+        st.write("")
+        for z in ZONES:
+            st.markdown(zone_card(z, latest.get(z), detail=True), unsafe_allow_html=True)
+
+    t1, t2 = st.columns([2, 1])
+    with t1:
+        st.markdown("**Density over time** (people per m², each point is one photo)")
+        df = pd.DataFrame([{"n": i + 1, "zone": r["zone"], "density": r["density"]} for i, r in enumerate(records)])
+        if len(df) > 1:
+            st.line_chart(df.pivot_table(index="n", columns="zone", values="density"), height=240)
+        else:
+            st.caption("Upload a second photo to see the trend.")
+    with t2:
+        st.markdown("**Alert log**")
+        if alerts:
+            st.dataframe(pd.DataFrame(alerts[::-1]), hide_index=True, use_container_width=True)
+        else:
+            st.caption("No risk-level changes yet.")
+
+
+_init_model()
+thresholds = load_thresholds()
+store = get_store()
+live = backend_name() == "onnx"
+
+with st.sidebar:
+    pw = staff_password()
+    if st.session_state.get("staff"):
+        st.success("Control room: signed in")
+        if st.button("Sign out"):
+            st.session_state["staff"] = False
+            st.rerun()
     else:
-        st.caption("Upload a second photo to see the trend.")
-with t2:
-    st.markdown("**Alert log**")
-    if st.session_state["alerts"]:
-        st.dataframe(pd.DataFrame(st.session_state["alerts"][::-1]), hide_index=True, use_container_width=True)
-    else:
-        st.caption("No risk-level changes yet.")
+        with st.expander("🔒 Staff login (police, volunteers, control room)"):
+            if not pw:
+                st.caption("Staff login is not configured. Set SS_STAFF_PASSWORD on the server.")
+            else:
+                entered = st.text_input("Password", type="password")
+                if st.button("Sign in") and hmac.compare_digest(entered.encode(), pw.encode()):
+                    st.session_state["staff"] = True
+                    st.rerun()
+                elif entered:
+                    st.caption("Wrong password.")
+
+if st.session_state.get("staff"):
+    header(live, "Control room. Upload camera photos here; the public dashboard updates automatically.")
+    if not live:
+        st.warning("No trained model found, so counts are simulated. Set SS_MODEL_URL and reboot the app.")
+    control_view(store)
+else:
+    header(live, "Live crowd status for pilgrims at the Simhastha Kumbh Mela.")
+    pilgrim_view(store)
