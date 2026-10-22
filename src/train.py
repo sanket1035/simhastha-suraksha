@@ -40,6 +40,7 @@ def parse_args(argv=None):
     ap.add_argument("--count-scale", type=float, default=100.0, help="mlp/cnn: target = count / scale")
     ap.add_argument("--freeze-frontend", action="store_true")
     ap.add_argument("--no-pretrained", action="store_true")
+    ap.add_argument("--init-weights", default="", help="start from a saved state_dict (.pth), e.g. a pretrained CSRNet")
     ap.add_argument("--val-fraction", type=float, default=0.1)
     ap.add_argument("--max-train-images", type=int, default=0, help="quick smoke test with fewer images")
     ap.add_argument("--amp", action="store_true", help="mixed precision (CUDA only)")
@@ -119,6 +120,10 @@ def main(argv=None):
 
     model = build_model(args.model, activation=args.activation, dropout=args.dropout, input_size=args.count_size,
                         pretrained=not args.no_pretrained, freeze_frontend=args.freeze_frontend).to(device)
+    if args.init_weights:
+        state = torch.load(args.init_weights, map_location=device)
+        model.load_state_dict(state.get("state_dict", state) if isinstance(state, dict) else state)
+        print("initialised from %s" % args.init_weights)
     params = [p for p in model.parameters() if p.requires_grad]
     if args.optimizer == "adam":
         optimizer = torch.optim.Adam(params, lr=args.lr, weight_decay=args.weight_decay)
