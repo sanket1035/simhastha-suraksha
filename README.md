@@ -4,7 +4,7 @@
 
 > सिंहस्थ सुरक्षा: गर्दीवर एआयची नजर
 
-![Python](https://img.shields.io/badge/Python-3.x-3776AB?style=flat-square&logo=python&logoColor=white) ![PyTorch](https://img.shields.io/badge/PyTorch-Deep_Learning-EE4C2C?style=flat-square&logo=pytorch&logoColor=white) ![OpenCV](https://img.shields.io/badge/OpenCV-Vision-5C3EE8?style=flat-square&logo=opencv&logoColor=white) ![Model](https://img.shields.io/badge/Model-CSRNet_VGG16-8A2BE2?style=flat-square) ![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?style=flat-square&logo=streamlit&logoColor=white) ![WandB](https://img.shields.io/badge/WandB-Tracked-FFBE00?style=flat-square) ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker&logoColor=white) ![CI](https://github.com/sanket1035/simhastha-suraksha/actions/workflows/ci.yml/badge.svg) ![Status](https://img.shields.io/badge/Status-In_Development-orange?style=flat-square) ![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
+![Python](https://img.shields.io/badge/Python-3.x-3776AB?style=flat-square&logo=python&logoColor=white) ![PyTorch](https://img.shields.io/badge/PyTorch-Deep_Learning-EE4C2C?style=flat-square&logo=pytorch&logoColor=white) ![OpenCV](https://img.shields.io/badge/OpenCV-Vision-5C3EE8?style=flat-square&logo=opencv&logoColor=white) ![Model](https://img.shields.io/badge/Model-CSRNet_VGG16-8A2BE2?style=flat-square) ![Streamlit](https://img.shields.io/badge/Streamlit-Dashboard-FF4B4B?style=flat-square&logo=streamlit&logoColor=white) ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker&logoColor=white) ![CI](https://github.com/sanket1035/simhastha-suraksha/actions/workflows/ci.yml/badge.svg) ![Status](https://img.shields.io/badge/Status-In_Development-orange?style=flat-square) ![License](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)
 
 > 🚧 **Work in progress.** Results, demo link and setup steps are added only after they exist and have been measured.
 
@@ -58,19 +58,26 @@ The model only counts people. The safety decision comes from density and thresho
 |------|-------|---------|
 | 1 | MLP | Baseline that predicts the count directly from the image |
 | 2 | Custom CNN | Stronger baseline with data augmentation |
-| 3 | CSRNet (VGG16, transfer learning) | Density map estimation |
+| 3 | CSRNet (VGG16 frontend + dilated backend) | Density map estimation, using pretrained weights from [rootstrap-org/crowd-counting](https://huggingface.co/rootstrap-org/crowd-counting) (MIT license). This project did not train these weights |
 
-Experiments also cover Dropout and L2 regularization, Sigmoid vs Tanh vs ReLU, and hyperparameter sweeps tracked with Weights and Biases.
+`src/train.py` also supports Dropout, L2 regularization, Sigmoid/Tanh/ReLU, freezing the CSRNet frontend and Weights and Biases logging. These experiments have not been run yet.
 
 ## Results
 
-No numbers are claimed yet. This table is filled in from measured test-set results.
+Measured on the ShanghaiTech Part A test split (182 images) with `src/evaluate.py`. Lower is better.
 
 | Model | MAE | RMSE |
 |-------|-----|------|
-| MLP (baseline) | TBD | TBD |
-| Custom CNN | TBD | TBD |
-| CSRNet | TBD | TBD |
+| MLP (baseline) | 312.36 | 425.08 |
+| Custom CNN | 259.37 | 360.53 |
+| CSRNet (pretrained weights, used as is) | 66.68 | 106.92 |
+
+Notes:
+
+- The CSRNet weights come from [rootstrap-org/crowd-counting](https://huggingface.co/rootstrap-org/crowd-counting). Its model card says they were trained on ShanghaiTech Part B. This project did not verify that and did not train them; it only evaluated them.
+- A 3-epoch fine-tune of those weights on Part A gave MAE 70.86 and RMSE 105.16 on the same test split, which is no improvement, so the weights are used as they are.
+- The MLP and CNN were trained for 15 epochs each on 270 Part A training images (30 held out for validation) on a Kaggle T4 x2 GPU session. Training took about 1.5 minutes for the MLP and under 1 minute for the CNN.
+- Single runs, no repeated seeds.
 
 ## Dashboard
 
@@ -141,7 +148,7 @@ Datasets are not included in this repository. Download them from their original 
 
 ## Limitations and responsible use
 
-- Trained on public datasets, **not on real Kumbh footage**. Accuracy on Kumbh scenes is unknown until tested on local images.
+- Evaluated only on a public dataset (ShanghaiTech Part A), **not on real Kumbh footage**. Accuracy on Kumbh scenes is unknown until tested on local images.
 - Density is only meaningful when the area matches the ground actually visible to the camera.
 - This is a **decision-support aid**. It does not replace administrative or police judgement.
 - It counts people in aggregate and does not identify individuals.
