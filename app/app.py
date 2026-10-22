@@ -27,6 +27,8 @@ from src.risk import LEVELS, density_from_count, level_for_density, load_thresho
 
 # Placeholder areas in square metres. Measure the real visible ground area per camera.
 ZONES = {"Ramkund": 200.0, "Panchvati": 300.0, "Trimbakeshwar": 250.0}
+# Approximate centre points (lat, lon). PLACEHOLDERS: set to the real camera locations before use.
+ZONE_GEO = {"Ramkund": (19.9996, 73.7922), "Panchvati": (20.0067, 73.7917), "Trimbakeshwar": (19.9322, 73.5309)}
 IMAGE_TYPES = ["jpg", "jpeg", "png"]
 MAX_RECORDS = 30
 VIEW_MODES = ["Heatmap overlay", "Heat only", "Original"]
@@ -209,6 +211,56 @@ def zone_line(z, r):
             (LEVEL_COLORS[r["level"]], z, "{:,}".format(round(r["count"])), r["density"], r["level"]))
 
 
+VENDOR = Path(__file__).resolve().parent / "vendor"
+MAP_HTML = """<!doctype html><html><head><meta charset="utf-8"><style>%(css)s
+html,body,#m{height:100%%;margin:0;background:#E3DACB;font-family:Inter,system-ui,sans-serif}
+.leaflet-container{background:#E3DACB}
+.pin{background:none;border:0;font:600 12px Inter,system-ui,sans-serif;color:#2B0E27;white-space:nowrap;
+ text-shadow:0 0 3px #EDE6DA,0 0 3px #EDE6DA,0 0 3px #EDE6DA}
+</style></head><body><div id="m"></div><script>%(js)s</script><script>
+var Z=%(zones)s;
+var map=L.map('m',{zoomControl:true,scrollWheelZoom:false});
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+  {maxZoom:19,attribution:'&copy; OpenStreetMap contributors &copy; CARTO'}).addTo(map);
+var pts=[];
+Z.forEach(function(z){
+  pts.push([z.lat,z.lon]);
+  L.circleMarker([z.lat,z.lon],{radius:z.radius,color:z.color,weight:2,fillColor:z.color,fillOpacity:.28}).addTo(map);
+  L.circleMarker([z.lat,z.lon],{radius:7,color:'#fff',weight:2,fillColor:z.color,fillOpacity:1})
+    .bindTooltip('<b>'+z.zone+'</b><br>'+z.info).addTo(map);
+  L.marker([z.lat,z.lon],{interactive:false,icon:L.divIcon({className:'pin',html:z.zone,iconAnchor:[-14,6]})}).addTo(map);
+});
+function fit(list){map.fitBounds(list,{padding:[60,60],maxZoom:15});}
+fit(pts);
+var core=pts.filter(function(p){return p[1]>73.7;});
+var bar=L.control({position:'topright'});
+bar.onAdd=function(){var d=L.DomUtil.create('div','leaflet-bar');
+  d.innerHTML='<a href="#" style="width:auto;padding:0 10px;font:600 12px/30px Inter,sans-serif" id="b1">Nashik ghats</a>'+
+  '<a href="#" style="width:auto;padding:0 10px;font:600 12px/30px Inter,sans-serif" id="b2">All zones</a>';
+  L.DomEvent.disableClickPropagation(d);
+  d.querySelector('#b1').onclick=function(e){e.preventDefault();fit(core);};
+  d.querySelector('#b2').onclick=function(e){e.preventDefault();fit(pts);};return d;};
+bar.addTo(map);
+</script></body></html>"""
+
+
+def crowd_map(latest, height=420):
+    """Map of the zones: circle colour = risk level, size = people counted, grey = no data yet."""
+    import json
+    import streamlit.components.v1 as components
+    zones = []
+    for z, (lat, lon) in ZONE_GEO.items():
+        r = latest.get(z)
+        zones.append({
+            "zone": z, "lat": lat, "lon": lon, "color": LEVEL_COLORS[r["level"]] if r else "#7A6A74",
+            "radius": round(16 + min(r["count"], 1500) / 1500.0 * 30) if r else 10,
+            "info": ("%s · %s people · %.2f per m²" % (r["level"], "{:,}".format(round(r["count"])), r["density"]))
+                    if r else "No data yet"})
+    html = MAP_HTML % {"css": (VENDOR / "leaflet.css").read_text(), "js": (VENDOR / "leaflet.js").read_text(),
+                       "zones": json.dumps(zones)}
+    components.html(html, height=height)
+
+
 def pilgrim_view(store):
     @st.fragment(run_every=10)
     def live_board():
@@ -217,7 +269,10 @@ def pilgrim_view(store):
             st.markdown('<div class="empty"><h3>No live data yet</h3>Crowd updates appear here as soon as '
                         'the cameras report.</div>', unsafe_allow_html=True)
             return
-        st.markdown('<div style="border-top:1px solid var(--ink);margin-top:18px"></div>', unsafe_allow_html=True)
+        st.markdown('<div style="border-top:1px solid var(--ink);margin:18px 0 8px"></div>'
+                    '<div class="lab">Where is it crowded</div>', unsafe_allow_html=True)
+        crowd_map(latest)
+        st.markdown('<div style="border-top:1px solid var(--ink);margin:14px 0 6px"></div>', unsafe_allow_html=True)
         cols = st.columns(len(ZONES), gap="large")
         for col, z in zip(cols, ZONES):
             with col:
@@ -280,6 +335,8 @@ def control_view(store):
                     'photo. The public dashboard updates at the same time.</div>', unsafe_allow_html=True)
         return
 
+    st.markdown('<div class="lab" style="margin-bottom:6px">Zone map</div>', unsafe_allow_html=True)
+    crowd_map(latest, height=360)
     names = list(latest)
     focus = st.session_state.get("focus", names[-1])
     if focus not in latest:
