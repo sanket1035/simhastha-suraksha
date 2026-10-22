@@ -158,6 +158,15 @@ Datasets are not included in this repository. Download them from their original 
 - UCF-QNRF (optional): [crcv.ucf.edu/data/ucf-qnrf](https://www.crcv.ucf.edu/data/ucf-qnrf/)
 - CSRNet: Li et al., *CSRNet: Dilated Convolutional Neural Networks for Understanding the Highly Congested Scenes*, CVPR 2018 ([arXiv:1802.10062](https://arxiv.org/abs/1802.10062))
 
+## Future scope
+
+- Live camera feeds on a hosted deployment: cameras push frames to an API with shared storage, so the
+  public dashboard updates without a staff upload. Today the ingest worker (`src.ingest`) runs on the
+  same machine as the app.
+- Per-camera positions and fields of view on the map, and more zones.
+- Alerts to control-room staff by SMS or WhatsApp when a zone crosses a risk level.
+- Perspective-aware counting for far-away crowds, which the current model undercounts.
+
 ## Limitations and responsible use
 
 - Evaluated only on a public dataset (ShanghaiTech Part A), **not on real Kumbh footage**. Accuracy on Kumbh scenes is unknown until tested on local images.
