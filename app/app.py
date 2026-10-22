@@ -23,49 +23,82 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.heatmap import overlay_heatmap  # noqa: E402
 from src.predict import backend_name, ensure_model, predict  # noqa: E402
-from src.risk import LEVEL_COLORS, LEVELS, density_from_count, level_for_density, load_thresholds  # noqa: E402
+from src.risk import LEVELS, density_from_count, level_for_density, load_thresholds  # noqa: E402
 
 # Placeholder areas in square metres. Measure the real visible ground area per camera.
 ZONES = {"Ramkund": 200.0, "Panchvati": 300.0, "Trimbakeshwar": 250.0}
 IMAGE_TYPES = ["jpg", "jpeg", "png"]
 MAX_RECORDS = 30
 VIEW_MODES = ["Heatmap overlay", "Heat only", "Original"]
+# Level colours chosen to sit on the cream/aubergine palette while staying distinguishable.
+LEVEL_COLORS = {"Low": "#2E8B6A", "Medium": "#E39A00", "High": "#D4571C", "Critical": "#B3261E"}
+
+
+def _heat_lut():
+    """Aubergine -> marigold -> pale gold colour ramp (BGR, 256 entries) for OpenCV."""
+    stops = [(0.0, (0x34, 0x0F, 0x3A)), (0.45, (0x9A, 0x2F, 0x7A)), (0.75, (0x00, 0xA0, 0xEA)),
+             (1.0, (0xC8, 0xF0, 0xFF))]
+    xs = np.linspace(0, 1, 256)
+    rgb = np.stack([np.interp(xs, [p for p, _ in stops], [c[i] for _, c in stops]) for i in range(3)], axis=1)
+    return rgb.astype(np.uint8).reshape(256, 1, 3)
+
+
+HEAT_LUT = _heat_lut()
 
 st.set_page_config(page_title="Simhastha Suraksha", page_icon="🔱", layout="wide")
 
 CSS = """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,700;0,9..144,900;1,9..144,400;1,9..144,700&family=Inter:wght@400;500;600&family=Tiro+Devanagari+Hindi&display=swap');
+:root {--ink:#2B0E27;--aub:#3A0F34;--gold:#EAA000;--ice:#DDE3E8;--cream:#EDE6DA;--mute:#7A6A74;--rule:#2B0E2733}
+html, body, [class*="css"] {font-family:'Inter',sans-serif}
 #MainMenu, footer, header[data-testid="stHeader"] {visibility:hidden;height:0}
-.block-container {padding-top:1.6rem;max-width:1400px}
-.hero {display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:1.1rem}
-.hero h1 {margin:0;font-size:2.3rem;font-weight:800;letter-spacing:-.5px;
-  background:linear-gradient(90deg,#FFB25B,#FF5E3A);-webkit-background-clip:text;color:transparent}
-.hero p {margin:.2rem 0 0;color:#8E99B3;font-size:.92rem}
-.pill {padding:5px 14px;border-radius:99px;font-size:.78rem;font-weight:600;border:1px solid}
-.pill.on {color:#3DDC97;border-color:#3DDC9755;background:#3DDC9714}
-.pill.off {color:#FFB25B;border-color:#FFB25B55;background:#FFB25B14}
-.kpi {background:linear-gradient(160deg,#161E33,#10162A);border:1px solid #232D4A;border-radius:14px;
-  padding:16px 18px;height:100%}
-.kpi .l {color:#8E99B3;font-size:.74rem;text-transform:uppercase;letter-spacing:1.2px}
-.kpi .v {font-size:2rem;font-weight:800;line-height:1.15;margin-top:4px}
-.kpi .s {color:#8E99B3;font-size:.8rem}
-.zone {background:#131A2B;border:1px solid #232D4A;border-left:5px solid var(--c);border-radius:12px;
-  padding:14px 16px;margin-bottom:.6rem}
-.zone .n {font-weight:700;font-size:1.02rem}
-.zone .b {float:right;background:var(--c);color:#0B0F1A;padding:2px 10px;border-radius:6px;
-  font-weight:700;font-size:.76rem}
-.zone .m {color:#8E99B3;font-size:.84rem;margin-top:6px}
-.zone .m b {color:#E8ECF4;font-size:1.05rem}
-.big {border-radius:16px;padding:22px;border:1px solid var(--c);background:linear-gradient(160deg,var(--c)22,#10162A 70%)}
-.big .lv {font-size:2.6rem;font-weight:800;color:var(--c);line-height:1}
-.big .row {display:flex;justify-content:space-between;margin-top:14px;color:#8E99B3;font-size:.85rem}
-.big .row b {color:#E8ECF4;font-size:1.25rem;display:block}
-.meter {height:10px;border-radius:99px;margin-top:16px;position:relative;
-  background:linear-gradient(90deg,#1D9E75 0%,#FAC775 33%,#EF9F27 62%,#E24B4A 100%)}
-.meter i {position:absolute;top:-5px;width:4px;height:20px;border-radius:3px;background:#fff;
-  box-shadow:0 0 8px #000}
-.empty {text-align:center;padding:70px 20px;border:1px dashed #2C3858;border-radius:16px;color:#8E99B3}
-.empty h3 {color:#E8ECF4;margin-bottom:.3rem}
+.block-container {padding-top:1.4rem;max-width:1320px}
+[data-testid="stSidebar"] {background:#E3DACB;border-right:1px solid var(--rule)}
+.top {display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--ink);
+  padding-bottom:10px;font-size:.68rem;letter-spacing:.28em;text-transform:uppercase;color:var(--ink)}
+.top .dot {display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:var(--gold)}
+.top .dot.live {background:#2E8B6A}
+.hero {padding:34px 0 10px;position:relative}
+.hero .kick {font-size:.68rem;letter-spacing:.32em;color:var(--mute);text-transform:uppercase}
+.hero h1 {margin:10px 0 0;font-family:'Tiro Devanagari Hindi','Fraunces',serif;font-weight:400;
+  font-size:clamp(3rem,8vw,6.4rem);line-height:.98;letter-spacing:-.02em;color:var(--aub)}
+.hero h1 em {font-family:'Fraunces',serif;font-style:italic;font-weight:900;
+  background:linear-gradient(95deg,var(--aub) 10%,var(--gold) 90%);-webkit-background-clip:text;color:transparent;
+  filter:drop-shadow(0 0 .5px var(--aub))}
+.hero p {max-width:560px;color:#54404f;font-size:.95rem;line-height:1.6;margin:14px 0 0}
+.cols {display:grid;grid-template-columns:repeat(3,1fr);margin-top:18px;border-top:1px solid var(--ink)}
+.col {padding:18px 20px 12px;border-left:1px solid var(--rule)}
+.col:first-child {border-left:0;padding-left:0}
+.col .z {font-family:'Fraunces',serif;font-size:1.5rem;font-weight:700;color:var(--aub)}
+.col .lv {font-family:'Fraunces',serif;font-style:italic;font-size:2.7rem;font-weight:900;line-height:1.05;color:var(--c)}
+.col .adv {color:#54404f;font-size:.88rem;line-height:1.5;margin:6px 0 10px;min-height:2.6em}
+.col .ts, .lab {font-size:.66rem;letter-spacing:.24em;text-transform:uppercase;color:var(--mute)}
+.col .meter {height:3px;background:var(--rule);margin:12px 0 4px;position:relative}
+.col .meter i {position:absolute;left:0;top:0;bottom:0;background:var(--c)}
+.stats {display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--ink);border-bottom:1px solid var(--rule);margin:14px 0 22px}
+.stat {padding:14px 18px;border-left:1px solid var(--rule)}
+.stat:first-child {border-left:0;padding-left:0}
+.stat .v {font-family:'Fraunces',serif;font-size:2.4rem;font-weight:900;line-height:1.1;color:var(--c,var(--aub))}
+.stat .s {font-size:.78rem;color:var(--mute)}
+.big {background:var(--aub);color:var(--cream);padding:24px;border-radius:2px;border-top:6px solid var(--c)}
+.big .lab {color:#cbb8c6}
+.big .lv {font-family:'Fraunces',serif;font-style:italic;font-weight:900;font-size:3.2rem;line-height:1;color:var(--c);margin-top:6px}
+.big .row {display:flex;justify-content:space-between;margin-top:18px;font-size:.78rem;color:#cbb8c6}
+.big .row b {display:block;font-family:'Fraunces',serif;font-size:1.5rem;color:var(--cream)}
+.big .meter {height:4px;background:#ffffff33;margin-top:18px;position:relative}
+.big .meter i {position:absolute;top:-4px;width:3px;height:12px;background:var(--c)}
+.zline {border-top:1px solid var(--rule);padding:10px 0;display:flex;justify-content:space-between;align-items:baseline}
+.zline .n {font-family:'Fraunces',serif;font-weight:700;color:var(--aub)}
+.zline .b {font-size:.68rem;letter-spacing:.2em;text-transform:uppercase;font-weight:600;color:var(--c)}
+.zline .m {font-size:.8rem;color:var(--mute)}
+.empty {text-align:center;padding:70px 20px;border-top:1px solid var(--ink);border-bottom:1px solid var(--rule);color:var(--mute)}
+.empty h3 {font-family:'Fraunces',serif;font-size:1.8rem;color:var(--aub);margin-bottom:.3rem}
+.stRadio label p, .stButton button {font-family:'Inter',sans-serif}
+.stButton button {border-radius:2px;border:1px solid var(--ink);background:transparent;color:var(--ink)}
+.stButton button:hover {background:var(--aub);color:var(--cream);border-color:var(--aub)}
+div[data-testid="stImage"] img {border-radius:2px}
+@media (max-width:800px) {.cols,.stats {grid-template-columns:1fr} .col,.stat {border-left:0;padding-left:0}}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -96,14 +129,9 @@ def analyse(file, zone, area, thresholds):
         "zone": zone, "name": file.name, "ts": datetime.now(), "area": area,
         "count": float(count), "density": density, "level": level,
         "original": img_s,
-        "overlay": overlay_heatmap(img_s, dens_s, colormap=cv2.COLORMAP_INFERNO, alpha=0.6),
-        "heat": overlay_heatmap(img_s, dens_s, colormap=cv2.COLORMAP_INFERNO, alpha=1.0, min_fraction=0.0),
+        "overlay": overlay_heatmap(img_s, dens_s, colormap=HEAT_LUT, alpha=0.72),
+        "heat": overlay_heatmap(img_s, dens_s, colormap=HEAT_LUT, alpha=1.0, min_fraction=0.0),
     }
-
-
-def kpi(label, value, sub="", color="#E8ECF4"):
-    return ('<div class="kpi"><div class="l">%s</div><div class="v" style="color:%s">%s</div>'
-            '<div class="s">%s</div></div>' % (label, color, value, sub))
 
 
 class Store:
@@ -157,23 +185,28 @@ ADVICE = {"Low": "Clear. Good time to visit.",
           "Critical": "Very crowded. Please avoid this area now and follow police directions."}
 
 
-def header(live, subtitle):
+def header(live, kicker, title_html, blurb):
     st.markdown(
-        '<div class="hero"><div><h1>सिंहस्थ Suraksha</h1><p>%s</p></div>'
-        '<span class="pill %s">%s</span></div>' %
-        (subtitle, "on" if live else "off", "● Model live" if live else "● Demo mode: simulated counts"),
+        '<div class="top"><span>Simhastha Kumbh Mela · Nashik</span>'
+        '<span><span class="dot %s"></span>%s</span></div>'
+        '<div class="hero"><div class="kick">%s</div><h1>%s</h1><p>%s</p></div>' %
+        ("live" if live else "", "Model live" if live else "Demo mode, simulated counts", kicker, title_html, blurb),
         unsafe_allow_html=True)
 
 
-def zone_card(z, r, detail):
+def stat(label, value, sub, color=None):
+    style = ' style="--c:%s"' % color if color else ""
+    return ('<div class="stat"%s><div class="lab">%s</div><div class="v">%s</div><div class="s">%s</div></div>'
+            % (style, label, value, sub))
+
+
+def zone_line(z, r):
     if not r:
-        return ('<div class="zone" style="--c:#2C3858"><div class="n">%s</div>'
-                '<div class="m">Waiting for the first camera update</div></div>' % z)
-    extra = ("<b>%s</b> people · <b>%.2f</b>/m²" % ("{:,}".format(round(r["count"])), r["density"])
-             if detail else ADVICE[r["level"]])
-    return ('<div class="zone" style="--c:%s"><span class="b">%s</span><div class="n">%s</div>'
-            '<div class="m">%s</div><div class="m">Updated %s</div></div>' %
-            (LEVEL_COLORS[r["level"]], r["level"], z, extra, r["ts"].strftime("%H:%M:%S")))
+        return ('<div class="zline" style="--c:#7A6A74"><span class="n">%s</span>'
+                '<span class="m">waiting for first photo</span></div>' % z)
+    return ('<div class="zline" style="--c:%s"><span class="n">%s</span><span><span class="m">%s people · '
+            '%.2f/m² &nbsp;</span><span class="b">%s</span></span></div>' %
+            (LEVEL_COLORS[r["level"]], z, "{:,}".format(round(r["count"])), r["density"], r["level"]))
 
 
 def pilgrim_view(store):
@@ -181,19 +214,30 @@ def pilgrim_view(store):
     def live_board():
         _, _, latest = store.snapshot()
         if not latest:
-            st.markdown('<div class="empty"><h3>No live data yet</h3>Crowd updates will appear here as soon as '
+            st.markdown('<div class="empty"><h3>No live data yet</h3>Crowd updates appear here as soon as '
                         'the cameras report.</div>', unsafe_allow_html=True)
             return
-        cols = st.columns(len(ZONES))
-        for col, (z, _a) in zip(cols, ZONES.items()):
+        st.markdown('<div style="border-top:1px solid var(--ink);margin-top:18px"></div>', unsafe_allow_html=True)
+        cols = st.columns(len(ZONES), gap="large")
+        for col, z in zip(cols, ZONES):
             with col:
-                st.markdown(zone_card(z, latest.get(z), detail=False), unsafe_allow_html=True)
-                if z in latest:
+                r = latest.get(z)
+                if r:
+                    pct = min(r["density"] / (thresholds["critical"] * 1.25), 1.0) * 100
+                    st.markdown(
+                        '<div class="col" style="--c:%s;border:0;padding:0"><div class="z">%s</div>'
+                        '<div class="lv">%s</div><div class="adv">%s</div>'
+                        '<div class="meter"><i style="width:%.0f%%"></i></div>'
+                        '<div class="ts">Updated %s</div></div>' %
+                        (LEVEL_COLORS[r["level"]], z, r["level"], ADVICE[r["level"]], pct,
+                         r["ts"].strftime("%H:%M")), unsafe_allow_html=True)
                     # Heat only: no raw photo is ever shown to the public.
-                    st.image(latest[z]["heat"], use_container_width=True,
-                             caption="Brighter = more crowded")
-        st.caption("This page refreshes by itself every few seconds. Always follow the instructions of "
-                   "police and volunteers on site.")
+                    st.image(r["heat"], use_container_width=True, caption="Brighter means more crowded")
+                else:
+                    st.markdown('<div class="col" style="border:0;padding:0"><div class="z">%s</div>'
+                                '<div class="adv">Waiting for the first camera update.</div></div>' % z,
+                                unsafe_allow_html=True)
+        st.caption("This page refreshes by itself. Always follow the instructions of police and volunteers on site.")
 
     live_board()
 
@@ -226,14 +270,11 @@ def control_view(store):
     records, alerts, latest = store.snapshot()
     worst = max(latest.values(), key=lambda r: LEVELS.index(r["level"]))["level"] if latest else "-"
     total = sum(r["count"] for r in latest.values())
-    c1, c2, c3, c4 = st.columns(4)
-    c1.markdown(kpi("People in view", "{:,}".format(round(total)), "latest photo per zone"), unsafe_allow_html=True)
-    c2.markdown(kpi("Zones reporting", "%d / %d" % (len(latest), len(ZONES)), "upload a photo to add one"),
-                unsafe_allow_html=True)
-    c3.markdown(kpi("Highest risk", worst, "across zones", LEVEL_COLORS.get(worst, "#E8ECF4")),
-                unsafe_allow_html=True)
-    c4.markdown(kpi("Alerts", len(alerts), "level changes"), unsafe_allow_html=True)
-    st.write("")
+    st.markdown('<div class="stats">%s%s%s%s</div>' % (
+        stat("People in view", "{:,}".format(round(total)), "latest photo per zone"),
+        stat("Zones reporting", "%d / %d" % (len(latest), len(ZONES)), "upload to add one"),
+        stat("Highest risk", worst, "across zones", LEVEL_COLORS.get(worst)),
+        stat("Alerts", len(alerts), "level changes")), unsafe_allow_html=True)
     if not records:
         st.markdown('<div class="empty"><h3>No photos yet</h3>Pick a zone in the sidebar and upload a crowd '
                     'photo. The public dashboard updates at the same time.</div>', unsafe_allow_html=True)
@@ -255,16 +296,14 @@ def control_view(store):
     with right:
         pos = min(cur["density"] / (thresholds["critical"] * 1.25), 1.0) * 100
         st.markdown(
-            '<div class="big" style="--c:%s"><div class="l" style="color:#8E99B3;font-size:.74rem;'
-            'letter-spacing:1.2px">RISK LEVEL · %s</div><div class="lv">%s</div>'
+            '<div class="big" style="--c:%s"><div class="lab">Risk level · %s</div><div class="lv">%s</div>'
             '<div class="meter"><i style="left:calc(%.1f%% - 2px)"></i></div>'
             '<div class="row"><div><b>%s</b>people</div><div><b>%.2f</b>per m²</div>'
-            '<div><b>%d m²</b>area</div></div></div>' %
-            (LEVEL_COLORS[cur["level"]], focus.upper(), cur["level"], pos, "{:,}".format(round(cur["count"])),
+            '<div><b>%d</b>m² area</div></div></div>' %
+            (LEVEL_COLORS[cur["level"]], focus, cur["level"], pos, "{:,}".format(round(cur["count"])),
              cur["density"], cur["area"]), unsafe_allow_html=True)
         st.write("")
-        for z in ZONES:
-            st.markdown(zone_card(z, latest.get(z), detail=True), unsafe_allow_html=True)
+        st.markdown("".join(zone_line(z, latest.get(z)) for z in ZONES), unsafe_allow_html=True)
 
     t1, t2 = st.columns([2, 1])
     with t1:
@@ -307,10 +346,12 @@ with st.sidebar:
                     st.caption("Wrong password.")
 
 if st.session_state.get("staff"):
-    header(live, "Control room. Upload camera photos here; the public dashboard updates automatically.")
+    header(live, "Control room", "Crowd <em>command</em>",
+           "Upload camera photos here. The public dashboard updates for every visitor within seconds.")
     if not live:
         st.warning("No trained model found, so counts are simulated. Set SS_MODEL_URL and reboot the app.")
     control_view(store)
 else:
-    header(live, "Live crowd status for pilgrims at the Simhastha Kumbh Mela.")
+    header(live, "Live crowd status", "सिंहस्थ <em>Suraksha</em>",
+           "Know how busy each ghat is before you go. Updated from the cameras, in plain words.")
     pilgrim_view(store)
