@@ -148,10 +148,10 @@ Datasets are not included in this repository. Download them from their original 
 
 ## Team
 
-- Atharv
-- Sanket
-- Purva
-- Rahil
+- [Atharv](https://github.com/ajxlv)
+- [Sanket](https://github.com/sanket1035)
+- [Purva](https://github.com/purvachopade1665)
+- [Rahil](https://github.com/Rahilshah2234)
 
 ## License
 
