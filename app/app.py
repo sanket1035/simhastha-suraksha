@@ -146,7 +146,7 @@ def zone_line(z, r):
 
 
 VENDOR = Path(__file__).resolve().parent / "vendor"
-MAP_HTML = """<!doctype html><html><head><meta charset="utf-8"><style>%(css)s
+MAP_HTML = """<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="strict-origin-when-cross-origin"><style>%(css)s
 html,body,#m{height:100%%;margin:0;background:#E3DACB;font-family:Inter,system-ui,sans-serif}
 .leaflet-container{background:#E3DACB}
 .pin{background:none;border:0;font:600 12px Inter,system-ui,sans-serif;color:#2B0E27;white-space:nowrap;
@@ -154,8 +154,8 @@ html,body,#m{height:100%%;margin:0;background:#E3DACB;font-family:Inter,system-u
 </style></head><body><div id="m"></div><script>%(js)s</script><script>
 var Z=%(zones)s;
 var map=L.map('m',{zoomControl:true,scrollWheelZoom:false});
-L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-  {maxZoom:19,attribution:'&copy; OpenStreetMap contributors &copy; CARTO'}).addTo(map);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+  {maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
 var pts=[];
 Z.forEach(function(z){
   pts.push([z.lat,z.lon]);

@@ -13,7 +13,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .heatmap import overlay_heatmap
+from .heatmap import colorize_density, overlay_heatmap
 from .predict import predict
 from .risk import density_from_count, level_for_density
 
@@ -49,8 +49,10 @@ def build_record(img_rgb, zone, area, thresholds, name="", predict_fn=None, ts=N
         "zone": zone, "name": name, "ts": ts or datetime.now(), "area": float(area),
         "count": float(count), "density": density, "level": level_for_density(density, thresholds),
         "original": small,
-        "overlay": overlay_heatmap(small, dens_map, colormap=HEAT_LUT, alpha=0.72),
-        "heat": overlay_heatmap(small, dens_map, colormap=HEAT_LUT, alpha=1.0, min_fraction=0.0),
+        "overlay": overlay_heatmap(small, dens_map, colormap=HEAT_LUT, alpha=0.8, min_fraction=0.0,
+                                   percentile=99, gamma=0.7),
+        "heat": colorize_density(dens_map, (small.shape[1], small.shape[0]), colormap=HEAT_LUT,
+                                 percentile=99, gamma=0.7),
     }
 
 

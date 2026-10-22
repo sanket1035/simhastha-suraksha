@@ -29,3 +29,18 @@ class HeatmapTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ColorizeTests(unittest.TestCase):
+    def test_peaked_map_still_shows_weak_areas_with_percentile_and_gamma(self):
+        from src.heatmap import colorize_density
+        d = np.full((10, 15), 0.01, dtype=np.float32)
+        d[0, 0] = 100.0  # one hot pixel
+        plain = colorize_density(d, (30, 20))
+        lifted = colorize_density(d, (30, 20), percentile=99, gamma=0.7)
+        self.assertEqual(lifted.shape, (20, 30, 3))
+        self.assertGreater(float(lifted[10, 20].mean()), float(plain[10, 20].mean()))
+
+    def test_empty_map_gives_image(self):
+        from src.heatmap import colorize_density
+        self.assertEqual(colorize_density(np.zeros((4, 4)), (16, 8)).shape, (8, 16, 3))
