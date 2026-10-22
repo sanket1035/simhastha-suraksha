@@ -26,9 +26,11 @@ IMAGE_TYPES = ["jpg", "jpeg", "png"]
 st.set_page_config(page_title="Simhastha Suraksha", layout="wide")
 
 
-@st.cache_resource
 def _init_model():
-    return ensure_model()
+    # Not st.cache_resource: a failed first attempt (e.g. secret not set yet) must be retried.
+    if not st.session_state.get("model_ok"):
+        st.session_state["model_ok"] = ensure_model()
+    return st.session_state["model_ok"]
 
 
 def badge(level):
