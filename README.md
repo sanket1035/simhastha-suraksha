@@ -83,6 +83,18 @@ Notes:
 
 Screenshots and a demo link will be added here.
 
+The app has two views. The pilgrim view is public and read-only: a map of the zones, a plain-language
+crowd level per zone and a heatmap (never the raw photo). The control room needs a staff password
+(`SS_STAFF_PASSWORD`) and lets staff upload camera photos and see counts, density, alerts and trends.
+
+### Camera ingest
+
+`python -m src.ingest --config config/cameras.yaml` polls each camera (snapshot URL, RTSP stream,
+video file or image folder), runs the model and updates the dashboard. Run it on the same machine
+as the app and point both at one folder with `SS_LIVE_DIR`. Edit `config/cameras.yaml` with the real
+cameras and measured ground areas. Streamlit Community Cloud cannot run this worker; use the
+Docker image or a server for a live deployment.
+
 ## Project structure
 
 ```

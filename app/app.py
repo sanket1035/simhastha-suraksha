@@ -4,16 +4,14 @@ Run:  streamlit run app/app.py
 Two views over one shared store:
   Pilgrim view   public, read-only: crowd level and a heatmap per zone, no raw photos.
   Control room   staff login (SS_STAFF_PASSWORD): upload camera photos, full detail, alerts.
-Every uploaded photo updates the pilgrim view for all visitors within seconds.
+Every uploaded photo, or frame from the camera-ingest worker (python -m src.ingest), updates the
+pilgrim view for all visitors within seconds. State is shared through SS_LIVE_DIR.
 """
 import hmac
 import os
 import sys
-import threading
-from datetime import datetime
 from pathlib import Path
 
-import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -21,31 +19,19 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.heatmap import overlay_heatmap  # noqa: E402
+from src.live import LiveStore, build_record  # noqa: E402
 from src.predict import backend_name, ensure_model, predict  # noqa: E402
-from src.risk import LEVELS, density_from_count, level_for_density, load_thresholds  # noqa: E402
+from src.risk import LEVELS, load_thresholds  # noqa: E402
 
 # Placeholder areas in square metres. Measure the real visible ground area per camera.
 ZONES = {"Ramkund": 200.0, "Panchvati": 300.0, "Trimbakeshwar": 250.0}
 # Approximate centre points (lat, lon). PLACEHOLDERS: set to the real camera locations before use.
 ZONE_GEO = {"Ramkund": (19.9996, 73.7922), "Panchvati": (20.0067, 73.7917), "Trimbakeshwar": (19.9322, 73.5309)}
 IMAGE_TYPES = ["jpg", "jpeg", "png"]
-MAX_RECORDS = 30
 VIEW_MODES = ["Heatmap overlay", "Heat only", "Original"]
 # Level colours chosen to sit on the cream/aubergine palette while staying distinguishable.
 LEVEL_COLORS = {"Low": "#2E8B6A", "Medium": "#E39A00", "High": "#D4571C", "Critical": "#B3261E"}
 
-
-def _heat_lut():
-    """Aubergine -> marigold -> pale gold colour ramp (BGR, 256 entries) for OpenCV."""
-    stops = [(0.0, (0x34, 0x0F, 0x3A)), (0.45, (0x9A, 0x2F, 0x7A)), (0.75, (0x00, 0xA0, 0xEA)),
-             (1.0, (0xC8, 0xF0, 0xFF))]
-    xs = np.linspace(0, 1, 256)
-    rgb = np.stack([np.interp(xs, [p for p, _ in stops], [c[i] for _, c in stops]) for i in range(3)], axis=1)
-    return rgb.astype(np.uint8).reshape(256, 1, 3)
-
-
-HEAT_LUT = _heat_lut()
 
 st.set_page_config(page_title="Simhastha Suraksha", page_icon="🔱", layout="wide")
 
@@ -113,61 +99,9 @@ def _init_model():
     return st.session_state["model_ok"]
 
 
-def _shrink(img, max_w=900):
-    h, w = img.shape[:2]
-    if w <= max_w:
-        return img
-    return cv2.resize(img, (max_w, int(h * max_w / w)), interpolation=cv2.INTER_AREA)
-
-
-def analyse(file, zone, area, thresholds):
-    img = np.asarray(Image.open(file).convert("RGB"))
-    count, dens_map = predict(img)
-    density = density_from_count(count, area)
-    level = level_for_density(density, thresholds)
-    img_s = _shrink(img)
-    dens_s = dens_map
-    return {
-        "zone": zone, "name": file.name, "ts": datetime.now(), "area": area,
-        "count": float(count), "density": density, "level": level,
-        "original": img_s,
-        "overlay": overlay_heatmap(img_s, dens_s, colormap=HEAT_LUT, alpha=0.72),
-        "heat": overlay_heatmap(img_s, dens_s, colormap=HEAT_LUT, alpha=1.0, min_fraction=0.0),
-    }
-
-
-class Store:
-    """Shared by every visitor (one per server process), so a staff upload shows up for the public."""
-
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.records, self.alerts = [], []
-
-    def add(self, rec):
-        with self.lock:
-            prev = next((r for r in reversed(self.records) if r["zone"] == rec["zone"]), None)
-            if prev and prev["level"] != rec["level"]:
-                self.alerts.append({"Time": rec["ts"].strftime("%H:%M:%S"), "Zone": rec["zone"],
-                                    "Change": "%s → %s" % (prev["level"], rec["level"]),
-                                    "People": round(rec["count"])})
-            self.records.append(rec)
-            del self.records[:-MAX_RECORDS]
-
-    def clear(self):
-        with self.lock:
-            self.records, self.alerts = [], []
-
-    def snapshot(self):
-        with self.lock:
-            latest = {}
-            for r in self.records:
-                latest[r["zone"]] = r
-            return list(self.records), list(self.alerts), latest
-
-
 @st.cache_resource
 def get_store():
-    return Store()
+    return LiveStore()
 
 
 def staff_password():
@@ -317,7 +251,7 @@ def control_view(store):
     if files:
         with st.spinner("Analysing %d photo(s)..." % len(files)):
             for f in files:
-                store.add(analyse(f, zone, area, thresholds))
+                store.add(build_record(np.asarray(Image.open(f).convert("RGB")), zone, area, thresholds, name=f.name))
         st.session_state["focus"] = zone
         st.session_state["uploader_n"] += 1
         st.rerun()
