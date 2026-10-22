@@ -45,9 +45,17 @@ def find_part_dir(root, part):
     raise FileNotFoundError("Could not find part %s under %s. Found: %s" % (part, root, listing))
 
 
+def find_gt_dir(split_dir):
+    """Ground-truth folder name differs between mirrors: ground_truth or ground-truth."""
+    for name in ("ground_truth", "ground-truth"):
+        if (Path(split_dir) / name).exists():
+            return Path(split_dir) / name
+    return Path(split_dir) / "ground_truth"
+
+
 def process_split(part_dir, split, out_dir, adaptive):
     img_dir = Path(part_dir) / ("%s_data" % split) / "images"
-    gt_dir = Path(part_dir) / ("%s_data" % split) / "ground_truth"
+    gt_dir = find_gt_dir(Path(part_dir) / ("%s_data" % split))
     den_dir = Path(out_dir) / "density" / split
     den_dir.mkdir(parents=True, exist_ok=True)
     rows = []

@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 from scipy.io import savemat
 
-from src.data_prep import find_part_dir, load_points, process_split
+from src.data_prep import find_gt_dir, find_part_dir, load_points, process_split
 
 
 def _write_gt(path, pts):
@@ -50,6 +50,14 @@ class DataPrepTests(unittest.TestCase):
         with open(out / "train_index.csv") as f:
             index = list(csv.DictReader(f))
         self.assertEqual(index[0]["gt_count"], "4")
+
+    def test_hyphenated_ground_truth_folder(self):
+        part = self.root / "part_A_final" / "train_data"
+        (part / "ground_truth").rename(part / "ground-truth")
+        self.assertEqual(find_gt_dir(part).name, "ground-truth")
+        out = Path(tempfile.mkdtemp())
+        rows = process_split(find_part_dir(self.root, "A"), "train", out, adaptive=True)
+        self.assertEqual(rows[0]["gt_count"], 4)
 
 
 if __name__ == "__main__":
