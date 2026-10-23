@@ -54,6 +54,19 @@ class LiveStoreTests(unittest.TestCase):
         self.assertEqual(z["level"], "Medium")  # 2.07 per m2; the busy angle alone would be Critical
         self.assertEqual(z["cameras"][0]["camera"], "Bridge")  # busiest first
 
+    def test_ignore_top_removes_counts_from_masked_rows(self):
+        def fp(img):  # 8x8 density map: all mass in the top half, 4 in the bottom
+            d = np.zeros((8, 8), dtype=np.float32)
+            d[:4] = 100.0 / 32
+            d[4:] = 4.0 / 32
+            return float(d.sum()), d
+        full = build_record(self.img, "A", 100.0, DEFAULT_THRESHOLDS, predict_fn=fp)
+        masked = build_record(self.img, "A", 100.0, DEFAULT_THRESHOLDS, predict_fn=fp, ignore_top=0.5)
+        self.assertAlmostEqual(full["count"], 104.0, places=3)
+        self.assertAlmostEqual(masked["count"], 4.0, places=3)
+        self.assertEqual(masked["ignore_top"], 0.5)
+        self.assertEqual(masked["overlay"].shape, self.img.shape)
+
     def test_new_photo_replaces_only_its_own_angle(self):
         self.add("A", 10, camera="Steps")
         self.add("A", 20, camera="Bridge")

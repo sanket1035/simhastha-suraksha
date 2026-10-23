@@ -40,17 +40,33 @@ def _shrink(img, max_w=900):
     return cv2.resize(img, (max_w, int(h * max_w / w)), interpolation=cv2.INTER_AREA)
 
 
-def build_record(img_rgb, zone, area, thresholds, name="", predict_fn=None, ts=None, camera="Camera 1"):
-    """Run the model on one RGB frame and return a record (with image arrays)."""
+def build_record(img_rgb, zone, area, thresholds, name="", predict_fn=None, ts=None, camera="Camera 1",
+                 ignore_top=0.0):
+    """Run the model on one RGB frame and return a record (with image arrays).
+
+    `ignore_top` (0..0.95) drops the top fraction of the frame from the count. Use it for sky and
+    buildings: the model can read repeating stone carving as a crowd, so a fixed camera should mask them.
+    `area` must then be the ground area of the part that is kept.
+    """
     count, dens_map = (predict_fn or predict)(img_rgb)
+    ignore_top = min(max(float(ignore_top), 0.0), 0.95)
+    rows = int(round(dens_map.shape[0] * ignore_top))
+    if rows:
+        dens_map = np.array(dens_map, dtype=np.float32, copy=True)
+        dens_map[:rows] = 0.0
+        count = float(dens_map.sum())
     density = density_from_count(count, area)
     small = _shrink(img_rgb)
+    overlay = overlay_heatmap(small, dens_map, colormap=HEAT_LUT, alpha=0.8, min_fraction=0.0,
+                              percentile=99, gamma=0.7)
+    if rows:  # dim the ignored band so staff can see what is excluded
+        cut = int(round(small.shape[0] * ignore_top))
+        overlay[:cut] = (overlay[:cut] * 0.35).astype(np.uint8)
     return {
-        "zone": zone, "camera": camera, "name": name, "ts": ts or datetime.now(), "area": float(area),
+        "zone": zone, "camera": camera, "name": name, "ignore_top": ignore_top, "ts": ts or datetime.now(), "area": float(area),
         "count": float(count), "density": density, "level": level_for_density(density, thresholds),
         "original": small,
-        "overlay": overlay_heatmap(small, dens_map, colormap=HEAT_LUT, alpha=0.8, min_fraction=0.0,
-                                   percentile=99, gamma=0.7),
+        "overlay": overlay,
         "heat": colorize_density(dens_map, (small.shape[1], small.shape[0]), colormap=HEAT_LUT,
                                  percentile=99, gamma=0.7),
     }
@@ -78,7 +94,7 @@ def _slug(text):
 def _numbers(rec):
     return {"zone": rec["zone"], "camera": rec["camera"], "name": rec["name"],
             "ts": rec["ts"].isoformat(timespec="seconds"), "area": rec["area"], "count": rec["count"],
-            "density": rec["density"], "level": rec["level"]}
+            "ignore_top": rec.get("ignore_top", 0.0), "density": rec["density"], "level": rec["level"]}
 
 
 def zone_summary(cams, thresholds=None):

@@ -66,7 +66,8 @@ def run_once(cameras, store, thresholds, grab=grab_frame, log=print, predict_fn=
     for c in cameras:
         try:
             rec = build_record(grab(c["source"]), c["zone"], c["area_m2"], thresholds, name=c["source"],
-                               predict_fn=predict_fn, camera=c.get("camera", Path(c["source"]).name or c["source"]))
+                               predict_fn=predict_fn, camera=c.get("camera", Path(c["source"]).name or c["source"]),
+                               ignore_top=c.get("ignore_top", 0.0))
             store.add(rec, thresholds)
             done += 1
             log("%s / %s: %d people, %s" % (c["zone"], rec["camera"], round(rec["count"]), rec["level"]))

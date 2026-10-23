@@ -258,6 +258,10 @@ def control_view(store):
                                key="area_%s_%s" % (zone, camera),
                                help="Measure the ground area this angle actually sees. Different angles of a zone "
                                     "should cover different ground; the zone total adds them up.")
+        ignore = st.slider("Ignore the top of the photo (%)", 0, 90, int(round(100 * last["ignore_top"])) if last else 0,
+                           step=5, key="ign_%s_%s" % (zone, camera),
+                           help="Leave out sky and buildings. The model can mistake stone carving or trees for "
+                                "a crowd. The area above should then cover only the part that is kept.")
         files = st.file_uploader("Upload one or more photos", type=IMAGE_TYPES, accept_multiple_files=True,
                                  key="up_%d" % st.session_state.setdefault("uploader_n", 0))
     with st.expander("Settings and account"):
@@ -276,7 +280,7 @@ def control_view(store):
         with st.spinner("Analysing %d photo(s)..." % len(files)):
             for f in files:
                 store.add(build_record(np.asarray(Image.open(f).convert("RGB")), zone, area, thresholds,
-                                       name=f.name, camera=camera), thresholds)
+                                       name=f.name, camera=camera, ignore_top=ignore / 100.0), thresholds)
         st.session_state["focus"] = zone
         st.session_state["uploader_n"] += 1
         st.rerun()
