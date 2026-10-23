@@ -8,3 +8,5 @@ font = "sans serif"
 
 [server]
 maxUploadSize = 30
+# Edits to src/ must reload too (the app imports it from outside its own folder).
+folderWatchList = ["src"]

@@ -1,10 +1,16 @@
 # Cameras polled by `python -m src.ingest`. One entry per camera; `zone` must match a zone in app/app.py.
 # source: http(s) snapshot URL, RTSP/stream URL, video file, or a folder of images (newest image is used).
+# camera: name of the angle (optional). Several cameras can share a zone; the zone total adds them up.
 # area_m2: ground area the camera sees, measured on site (the values below are PLACEHOLDERS).
 cameras:
   - zone: Ramkund
+    camera: Ghat steps
     source: http://192.168.1.50/snapshot.jpg
     area_m2: 200
+  - zone: Ramkund
+    camera: Bridge side
+    source: http://192.168.1.52/snapshot.jpg
+    area_m2: 120
   - zone: Panchvati
     source: rtsp://user:password@192.168.1.51/stream1
     area_m2: 300

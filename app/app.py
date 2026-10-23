@@ -19,7 +19,7 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.live import LiveStore, build_record  # noqa: E402
+from src.live import LiveStore, build_record, zone_summary  # noqa: E402
 from src.predict import backend_name, ensure_model, predict  # noqa: E402
 from src.risk import LEVELS, load_thresholds  # noqa: E402
 
@@ -199,30 +199,34 @@ def crowd_map(latest, height=420):
 def pilgrim_view(store):
     @st.fragment(run_every=10)
     def live_board():
-        _, _, latest = store.snapshot()
-        if not latest:
+        _, _, cams = store.snapshot()
+        zones = zone_summary(cams, thresholds)
+        if not zones:
             st.markdown('<div class="empty"><h3>No live data yet</h3>Crowd updates appear here as soon as '
                         'the cameras report.</div>', unsafe_allow_html=True)
             return
         st.markdown('<div style="border-top:1px solid var(--ink);margin:18px 0 8px"></div>'
                     '<div class="lab">Where is it crowded</div>', unsafe_allow_html=True)
-        crowd_map(latest)
+        crowd_map(zones)
         st.markdown('<div style="border-top:1px solid var(--ink);margin:14px 0 6px"></div>', unsafe_allow_html=True)
         cols = st.columns(len(ZONES), gap="large")
         for col, z in zip(cols, ZONES):
             with col:
-                r = latest.get(z)
+                r = zones.get(z)
                 if r:
                     pct = min(r["density"] / (thresholds["critical"] * 1.25), 1.0) * 100
+                    n = len(r["cameras"])
                     st.markdown(
                         '<div class="col" style="--c:%s;border:0;padding:0"><div class="z">%s</div>'
                         '<div class="lv">%s</div><div class="adv">%s</div>'
                         '<div class="meter"><i style="width:%.0f%%"></i></div>'
-                        '<div class="ts">Updated %s</div></div>' %
+                        '<div class="ts">Updated %s · %d camera angle%s</div></div>' %
                         (LEVEL_COLORS[r["level"]], z, r["level"], ADVICE[r["level"]], pct,
-                         r["ts"].strftime("%H:%M")), unsafe_allow_html=True)
+                         r["ts"].strftime("%H:%M"), n, "" if n == 1 else "s"), unsafe_allow_html=True)
                     # Heat only: no raw photo is ever shown to the public.
-                    st.image(r["heat"], use_container_width=True, caption="Brighter means more crowded")
+                    for cam in r["cameras"]:
+                        st.image(cam["heat"], use_container_width=True,
+                                 caption="%s · %s (brighter means more crowded)" % (cam["camera"], cam["level"]))
                 else:
                     st.markdown('<div class="col" style="border:0;padding:0"><div class="z">%s</div>'
                                 '<div class="adv">Waiting for the first camera update.</div></div>' % z,
@@ -232,13 +236,28 @@ def pilgrim_view(store):
     live_board()
 
 
+NEW_CAMERA = "➕ New camera angle"
+
+
 def control_view(store):
+    _, _, cams = store.snapshot()
     with st.container(border=True):
         st.markdown('<div class="lab">Add a camera photo</div>', unsafe_allow_html=True)
         c1, c2 = st.columns([1, 1])
         zone = c1.selectbox("Zone", list(ZONES))
-        area = c2.number_input("Visible ground area (m²)", min_value=1.0, value=ZONES[zone], step=10.0,
-                               key="area_" + zone, help="Measure the ground area this camera actually sees.")
+        known = [cam for (z, cam) in cams if z == zone]
+        choice = c2.selectbox("Camera angle", known + [NEW_CAMERA], help="Each angle keeps its own photo and area. "
+                              "Re-uploading to the same angle replaces that angle only.")
+        if choice == NEW_CAMERA:
+            camera = st.text_input("Name of the new angle", value="Angle %d" % (len(known) + 1)).strip() or "Camera"
+        else:
+            camera = choice
+        last = cams.get((zone, camera))
+        area = st.number_input("Ground area this angle sees (m²)", min_value=1.0,
+                               value=float(last["area"]) if last else ZONES[zone], step=10.0,
+                               key="area_%s_%s" % (zone, camera),
+                               help="Measure the ground area this angle actually sees. Different angles of a zone "
+                                    "should cover different ground; the zone total adds them up.")
         files = st.file_uploader("Upload one or more photos", type=IMAGE_TYPES, accept_multiple_files=True,
                                  key="up_%d" % st.session_state.setdefault("uploader_n", 0))
     with st.expander("Settings and account"):
@@ -256,57 +275,65 @@ def control_view(store):
     if files:
         with st.spinner("Analysing %d photo(s)..." % len(files)):
             for f in files:
-                store.add(build_record(np.asarray(Image.open(f).convert("RGB")), zone, area, thresholds, name=f.name))
+                store.add(build_record(np.asarray(Image.open(f).convert("RGB")), zone, area, thresholds,
+                                       name=f.name, camera=camera), thresholds)
         st.session_state["focus"] = zone
         st.session_state["uploader_n"] += 1
         st.rerun()
 
-    records, alerts, latest = store.snapshot()
-    worst = max(latest.values(), key=lambda r: LEVELS.index(r["level"]))["level"] if latest else "-"
-    total = sum(r["count"] for r in latest.values())
+    records, alerts, cams = store.snapshot()
+    zones = zone_summary(cams, thresholds)
+    worst = max(zones.values(), key=lambda r: LEVELS.index(r["level"]))["level"] if zones else "-"
+    total = sum(r["count"] for r in zones.values())
     st.markdown('<div class="stats">%s%s%s%s</div>' % (
-        stat("People in view", "{:,}".format(round(total)), "latest photo per zone"),
-        stat("Zones reporting", "%d / %d" % (len(latest), len(ZONES)), "upload to add one"),
+        stat("People in view", "{:,}".format(round(total)), "latest photo of every angle"),
+        stat("Zones reporting", "%d / %d" % (len(zones), len(ZONES)), "%d camera angle(s)" % len(cams)),
         stat("Highest risk", worst, "across zones", LEVEL_COLORS.get(worst)),
-        stat("Alerts", len(alerts), "level changes")), unsafe_allow_html=True)
+        stat("Alerts", len(alerts), "zone level changes")), unsafe_allow_html=True)
     if not records:
         st.markdown('<div class="empty"><h3>No photos yet</h3>Pick a zone above and upload a crowd '
                     'photo. The public dashboard updates at the same time.</div>', unsafe_allow_html=True)
         return
 
     st.markdown('<div class="lab" style="margin-bottom:6px">Zone map</div>', unsafe_allow_html=True)
-    crowd_map(latest, height=360)
-    names = list(latest)
+    crowd_map(zones, height=360)
+    names = list(zones)
     focus = st.session_state.get("focus", names[-1])
-    if focus not in latest:
+    if focus not in zones:
         focus = names[-1]
     focus = st.radio("Zone", names, index=names.index(focus), horizontal=True, label_visibility="collapsed")
-    cur = latest[focus]
+    zs = zones[focus]
+    angle_names = [c["camera"] for c in zs["cameras"]]
     left, right = st.columns([2, 1])
     with left:
+        angle = st.radio("Angle", angle_names, horizontal=True, label_visibility="collapsed") \
+            if len(angle_names) > 1 else angle_names[0]
+        cur = next(c for c in zs["cameras"] if c["camera"] == angle)
         mode = st.radio("View", VIEW_MODES, horizontal=True, label_visibility="collapsed")
         key = {"Heatmap overlay": "overlay", "Heat only": "heat", "Original": "original"}[mode]
         st.image(cur[key], use_container_width=True,
-                 caption="%s · %s · heat is relative to the densest spot in this photo" %
-                         (focus, cur["ts"].strftime("%H:%M:%S")))
+                 caption="%s · %s · %s · %d people, %d m² · heat is relative to the densest spot in this photo" %
+                         (focus, angle, cur["ts"].strftime("%H:%M:%S"), round(cur["count"]), round(cur["area"])))
     with right:
-        pos = min(cur["density"] / (thresholds["critical"] * 1.25), 1.0) * 100
+        pos = min(zs["density"] / (thresholds["critical"] * 1.25), 1.0) * 100
         st.markdown(
-            '<div class="big" style="--c:%s"><div class="lab">Risk level · %s</div><div class="lv">%s</div>'
+            '<div class="big" style="--c:%s"><div class="lab">Zone risk · %s</div><div class="lv">%s</div>'
             '<div class="meter"><i style="left:calc(%.1f%% - 2px)"></i></div>'
             '<div class="row"><div><b>%s</b>people</div><div><b>%.2f</b>per m²</div>'
-            '<div><b>%d</b>m² area</div></div></div>' %
-            (LEVEL_COLORS[cur["level"]], focus, cur["level"], pos, "{:,}".format(round(cur["count"])),
-             cur["density"], cur["area"]), unsafe_allow_html=True)
+            '<div><b>%d</b>m² total</div></div></div>' %
+            (LEVEL_COLORS[zs["level"]], focus, zs["level"], pos, "{:,}".format(round(zs["count"])),
+             zs["density"], zs["area"]), unsafe_allow_html=True)
         st.write("")
-        st.markdown("".join(zone_line(z, latest.get(z)) for z in ZONES), unsafe_allow_html=True)
+        st.markdown('<div class="lab">Camera angles in %s</div>' % focus +
+                    "".join(zone_line(c["camera"], c) for c in zs["cameras"]), unsafe_allow_html=True)
 
     t1, t2 = st.columns([2, 1])
     with t1:
         st.markdown("**Density over time** (people per m², each point is one photo)")
-        df = pd.DataFrame([{"n": i + 1, "zone": r["zone"], "density": r["density"]} for i, r in enumerate(records)])
+        df = pd.DataFrame([{"n": i + 1, "angle": "%s / %s" % (r["zone"], r["camera"]), "density": r["density"]}
+                           for i, r in enumerate(records)])
         if len(df) > 1:
-            st.line_chart(df.pivot_table(index="n", columns="zone", values="density"), height=240)
+            st.line_chart(df.pivot_table(index="n", columns="angle", values="density"), height=240)
         else:
             st.caption("Upload a second photo to see the trend.")
     with t2:

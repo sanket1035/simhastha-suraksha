@@ -87,6 +87,10 @@ The app has two views. The pilgrim view is public and read-only: a map of the zo
 crowd level per zone and a heatmap (never the raw photo). The control room needs a staff password
 (`SS_STAFF_PASSWORD`) and lets staff upload camera photos and see counts, density, alerts and trends.
 
+A zone can have several camera angles. Each angle keeps its own latest photo and ground area; the zone's
+risk level uses the total people over the total area of its angles, so one busy corner does not hide a quiet
+one. Uploading again to the same angle replaces only that angle.
+
 ### Camera ingest
 
 `python -m src.ingest --config config/cameras.yaml` polls each camera (snapshot URL, RTSP stream,
