@@ -31,6 +31,10 @@ def _heat_lut():
 
 
 HEAT_LUT = _heat_lut()
+# Fixed colour scale: a density-map cell at HEAT_REF or above is shown as the hottest colour. Measured with
+# the model: empty/sparse scenes peak near 0.05 to 0.4 per cell, dense crowds reach 0.7 to 2.7.
+HEAT_REF = 0.5
+HEAT_GAMMA = 0.6
 
 
 def _shrink(img, max_w=900):
@@ -58,7 +62,7 @@ def build_record(img_rgb, zone, area, thresholds, name="", predict_fn=None, ts=N
     density = density_from_count(count, area)
     small = _shrink(img_rgb)
     overlay = overlay_heatmap(small, dens_map, colormap=HEAT_LUT, alpha=0.8, min_fraction=0.0,
-                              percentile=99, gamma=0.7)
+                              gamma=HEAT_GAMMA, ref=HEAT_REF)
     if rows:  # dim the ignored band so staff can see what is excluded
         cut = int(round(small.shape[0] * ignore_top))
         overlay[:cut] = (overlay[:cut] * 0.35).astype(np.uint8)
@@ -68,7 +72,7 @@ def build_record(img_rgb, zone, area, thresholds, name="", predict_fn=None, ts=N
         "original": small,
         "overlay": overlay,
         "heat": colorize_density(dens_map, (small.shape[1], small.shape[0]), colormap=HEAT_LUT,
-                                 percentile=99, gamma=0.7),
+                                 gamma=HEAT_GAMMA, ref=HEAT_REF),
     }
 
 

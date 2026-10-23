@@ -81,6 +81,9 @@ html, body, [class*="css"] {font-family:'Inter',sans-serif}
 .zline .n {font-family:'Fraunces',serif;font-weight:700;color:var(--aub)}
 .zline .b {font-size:.68rem;letter-spacing:.2em;text-transform:uppercase;font-weight:600;color:var(--c)}
 .zline .m {font-size:.8rem;color:var(--mute)}
+.legend {margin:2px 0 10px}
+.legend .bar {height:8px;border-radius:2px;background:linear-gradient(90deg,#3A0F34,#9A2F7A 45%,#EAA000 75%,#FFF0C8)}
+.legend .ends {display:flex;justify-content:space-between;font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;color:var(--mute);margin-top:3px}
 .empty {text-align:center;padding:70px 20px;border-top:1px solid var(--ink);border-bottom:1px solid var(--rule);color:var(--mute)}
 .empty h3 {font-family:'Fraunces',serif;font-size:1.8rem;color:var(--aub);margin-bottom:.3rem}
 .stRadio label p, .stButton button {font-family:'Inter',sans-serif}
@@ -135,6 +138,11 @@ def stat(label, value, sub, color=None):
     style = ' style="--c:%s"' % color if color else ""
     return ('<div class="stat"%s><div class="lab">%s</div><div class="v">%s</div><div class="s">%s</div></div>'
             % (style, label, value, sub))
+
+
+HEAT_LEGEND = (
+    '<div class="legend"><div class="bar"></div><div class="ends"><span>few people</span>'
+    '<span>some</span><span>crowded</span></div></div>')
 
 
 def zone_line(z, r):
@@ -226,7 +234,8 @@ def pilgrim_view(store):
                     # Heat only: no raw photo is ever shown to the public.
                     for cam in r["cameras"]:
                         st.image(cam["heat"], use_container_width=True,
-                                 caption="%s · %s (brighter means more crowded)" % (cam["camera"], cam["level"]))
+                                 caption="%s · %s" % (cam["camera"], cam["level"]))
+                    st.markdown(HEAT_LEGEND, unsafe_allow_html=True)
                 else:
                     st.markdown('<div class="col" style="border:0;padding:0"><div class="z">%s</div>'
                                 '<div class="adv">Waiting for the first camera update.</div></div>' % z,
@@ -316,8 +325,10 @@ def control_view(store):
         mode = st.radio("View", VIEW_MODES, horizontal=True, label_visibility="collapsed")
         key = {"Heatmap overlay": "overlay", "Heat only": "heat", "Original": "original"}[mode]
         st.image(cur[key], use_container_width=True,
-                 caption="%s · %s · %s · %d people, %d m² · heat is relative to the densest spot in this photo" %
+                 caption="%s · %s · %s · %d people, %d m² · fixed colour scale" %
                          (focus, angle, cur["ts"].strftime("%H:%M:%S"), round(cur["count"]), round(cur["area"])))
+        if key != "original":
+            st.markdown(HEAT_LEGEND, unsafe_allow_html=True)
     with right:
         pos = min(zs["density"] / (thresholds["critical"] * 1.25), 1.0) * 100
         st.markdown(
