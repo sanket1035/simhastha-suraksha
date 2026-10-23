@@ -81,6 +81,8 @@ Notes:
 
 ## Dashboard
 
+The public page can be switched between English, Hindi and Marathi (button at the top, or `?lang=hi` / `?lang=mr` in the URL). It uses short sentences and colour words instead of technical terms; the control room stays in English. The wording lives in `src/i18n.py` and should be checked by a native speaker before real use.
+
 Screenshots and a demo link will be added here.
 
 The app has two views. The pilgrim view is public and read-only: a map of the zones, a plain-language

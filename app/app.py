@@ -123,6 +123,14 @@ def staff_password():
     return pw
 
 
+from src.i18n import (ADVICE as ADVICE_I18N, CODES, LANGS, LEVEL_FULL, LEVEL_SHORT, t as tt, zone_name)
+
+
+def cur_lang():
+    """Public page language; the control room stays in English."""
+    return "en" if st.session_state.get("staff") else LANGS.get(st.session_state.get("lang_label", "English"), "en")
+
+
 # Plain-language advice for the public. Wording is a placeholder for the control room to approve.
 ADVICE = {"Low": "Clear. Good time to visit.",
           "Medium": "Moderately busy. Keep moving and stay with your group.",
@@ -130,9 +138,9 @@ ADVICE = {"Low": "Clear. Good time to visit.",
           "Critical": "Very crowded. Please avoid this area now and follow police directions."}
 
 
-def header(live, kicker, title_html, blurb):
+def header(live, kicker, title_html, blurb, top="Simhastha Kumbh Mela · Nashik"):
     st.markdown(
-        '<div class="top"><span>Simhastha Kumbh Mela · Nashik</span>'
+        '<div class="top"><span>' + top + '</span>'
         '<span><span class="dot %s"></span>%s</span></div>'
         '<div class="hero"><div class="kick">%s</div><h1>%s</h1><p>%s</p></div>' %
         ("live" if live else "", "Model live" if live else "Demo mode, simulated counts", kicker, title_html, blurb),
@@ -145,9 +153,10 @@ def stat(label, value, sub, color=None):
             % (style, label, value, sub))
 
 
-HEAT_LEGEND = (
-    '<div class="legend"><div class="bar"></div><div class="ends"><span>few people</span>'
-    '<span>some</span><span>crowded</span></div></div>')
+def heat_legend(lang="en"):
+    a, b, c = tt(lang, "ends")
+    return ('<div class="legend"><div class="bar"></div><div class="ends"><span>%s</span>'
+            '<span>%s</span><span>%s</span></div></div>' % (a, b, c))
 
 
 def zone_line(z, r):
@@ -199,11 +208,12 @@ def crowd_map(latest, height=420):
     zones = []
     for z, (lat, lon) in ZONE_GEO.items():
         r = latest.get(z)
+        lg = cur_lang()
         zones.append({
-            "zone": z, "lat": lat, "lon": lon, "color": LEVEL_COLORS[r["level"]] if r else "#7A6A74",
+            "zone": zone_name(z, lg), "lat": lat, "lon": lon, "color": LEVEL_COLORS[r["level"]] if r else "#7A6A74",
             "radius": round(16 + min(r["count"], 1500) / 1500.0 * 30) if r else 10,
-            "info": ("%s · %s people · %.2f per m²" % (r["level"], "{:,}".format(round(r["count"])), r["density"]))
-                    if r else "No data yet"})
+            "info": (tt(lg, "info") % (LEVEL_SHORT[lg][r["level"]], "{:,}".format(round(r["count"])), r["density"]))
+                    if r else tt(lg, "nodata")})
     html = MAP_HTML % {"css": (VENDOR / "leaflet.css").read_text(), "js": (VENDOR / "leaflet.js").read_text(),
                        "zones": json.dumps(zones)}
     components.html(html, height=height)
@@ -252,7 +262,7 @@ def heat_on_map(zs, height=420):
         angles.append({"name": cam["camera"], "outline": footprint(geo, cam["area"]),
                        "cells": map_cells(cam["grid"], geo, cam["area"], thresholds)})
     if not angles:
-        st.caption("This view needs a fresh photo; upload again to draw the map.")
+        st.caption(tt(cur_lang(), "stale"))
         return
     data = {"angles": angles, "colors": LEVEL_COLORS,
             "opacity": {"Low": 0.3, "Medium": 0.55, "High": 0.62, "Critical": 0.7}}
@@ -260,15 +270,19 @@ def heat_on_map(zs, height=420):
             .replace("__JS__", (VENDOR / "leaflet.js").read_text()).replace("__DATA__", json.dumps(data)))
     components.html(html, height=height)
     chips = "".join('<span><i style="background:%s"></i>%s</span>' % (LEVEL_COLORS[lv], t) for lv, t in (
-        ("Low", "Low (under %.1f per m²)" % thresholds["medium"]), ("Medium", "Medium"),
-        ("High", "High (%.1f+)" % thresholds["high"]), ("Critical", "Critical (%.1f+)" % thresholds["critical"])))
+        ("Low", LEVEL_SHORT[cur_lang()]["Low"] + (" (<%.1f/m²)" % thresholds["medium"])),
+        ("Medium", LEVEL_SHORT[cur_lang()]["Medium"]),
+        ("High", LEVEL_SHORT[cur_lang()]["High"] + (" (%.1f+)" % thresholds["high"])),
+        ("Critical", LEVEL_SHORT[cur_lang()]["Critical"] + (" (%.1f+)" % thresholds["critical"]))))
     st.markdown('<div class="chips">%s</div>' % chips, unsafe_allow_html=True)
 
 
 def zone_view(zs, staff, key):
     """Heatmap overlay / heat only / on the map / original, for every angle of one zone."""
     modes = [m for m in VIEW_MODES if m != "Original" or staff or PUBLIC_ORIGINAL]
-    mode = st.radio("View", modes, horizontal=True, label_visibility="collapsed", key=key + "_view")
+    lg = cur_lang()
+    mode = st.radio("View", modes, horizontal=True, label_visibility="collapsed", key=key + "_view",
+                    format_func=lambda m: tt(lg, "views")[m])
     if mode == "On the map":
         heat_on_map(zs)
         return
@@ -279,9 +293,10 @@ def zone_view(zs, staff, key):
     img = {"Heatmap overlay": "overlay", "Heat only": "heat", "Original": "original"}[mode]
     detail = " · %d people, %d m²" % (round(cur["count"]), round(cur["area"])) if staff else ""
     st.image(cur[img], use_container_width=True,
-             caption="%s · %s · %s · %s%s" % (zs["zone"], angle, cur["level"], cur["ts"].strftime("%H:%M:%S"), detail))
+             caption="%s · %s · %s · %s%s" % (zone_name(zs["zone"], lg), angle, LEVEL_SHORT[lg][cur["level"]],
+                                              cur["ts"].strftime("%H:%M:%S"), detail))
     if img != "original":
-        st.markdown(HEAT_LEGEND, unsafe_allow_html=True)
+        st.markdown(heat_legend(cur_lang()), unsafe_allow_html=True)
 
 
 def pilgrim_view(store):
@@ -289,12 +304,13 @@ def pilgrim_view(store):
     def live_board():
         _, _, cams = store.snapshot()
         zones = zone_summary(cams, thresholds)
+        lg = cur_lang()
         if not zones:
-            st.markdown('<div class="empty"><h3>No live data yet</h3>Crowd updates appear here as soon as '
-                        'the cameras report.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="empty"><h3>%s</h3>%s</div>' % (tt(lg, "none_t"), tt(lg, "none_b")),
+                        unsafe_allow_html=True)
             return
         st.markdown('<div style="border-top:1px solid var(--ink);margin:18px 0 8px"></div>'
-                    '<div class="lab">Where is it crowded</div>', unsafe_allow_html=True)
+                    '<div class="lab">%s</div>' % tt(lg, "where"), unsafe_allow_html=True)
         crowd_map(zones)
         st.markdown('<div style="border-top:1px solid var(--ink);margin:14px 0 6px"></div>', unsafe_allow_html=True)
         cols = st.columns(len(ZONES), gap="large")
@@ -308,19 +324,24 @@ def pilgrim_view(store):
                         '<div class="col" style="--c:%s;border:0;padding:0"><div class="z">%s</div>'
                         '<div class="lv">%s</div><div class="adv">%s</div>'
                         '<div class="meter"><i style="width:%.0f%%"></i></div>'
-                        '<div class="ts">Updated %s · %d camera angle%s</div></div>' %
-                        (LEVEL_COLORS[r["level"]], z, r["level"], ADVICE[r["level"]], pct,
-                         r["ts"].strftime("%H:%M"), n, "" if n == 1 else "s"), unsafe_allow_html=True)
+                        '<div class="ts">%s</div></div>' %
+                        (LEVEL_COLORS[r["level"]], zone_name(z, lg), LEVEL_FULL[lg][r["level"]],
+                         ADVICE_I18N[lg][r["level"]], pct,
+                         (tt(lg, "updated") % (r["ts"].strftime("%H:%M"), n, "" if n == 1 else "s")
+                          if lg == "en" else tt(lg, "updated") % (r["ts"].strftime("%H:%M"), n))),
+                        unsafe_allow_html=True)
                 else:
                     st.markdown('<div class="col" style="border:0;padding:0"><div class="z">%s</div>'
-                                '<div class="adv">Waiting for the first camera update.</div></div>' % z,
+                                '<div class="adv">%s</div></div>' % (zone_name(z, lg), tt(lg, "waiting")),
                                 unsafe_allow_html=True)
         st.markdown('<div style="border-top:1px solid var(--ink);margin:14px 0 8px"></div>'
-                    '<div class="lab" style="margin-bottom:6px">Look closer</div>', unsafe_allow_html=True)
+                    '<div class="lab" style="margin-bottom:6px">%s</div>' % tt(lg, "close"), unsafe_allow_html=True)
         names = list(zones)
-        focus = st.radio("Zone", names, horizontal=True, label_visibility="collapsed", key="pub_zone")
+        focus = st.radio("Zone", names, horizontal=True, label_visibility="collapsed", key="pub_zone",
+                         format_func=lambda z: zone_name(z, lg))
         zone_view(zones[focus], staff=False, key="pub")
-        st.caption("This page refreshes by itself. Always follow the instructions of police and volunteers on site.")
+        st.caption(tt(lg, "guide"))
+        st.caption(tt(lg, "foot"))
 
     live_board()
 
@@ -475,7 +496,14 @@ if st.session_state.get("staff"):
         st.warning("No trained model found, so counts are simulated. Set SS_MODEL_URL and reboot the app.")
     control_view(store)
 else:
-    header(live, "Live crowd status", "सिंहस्थ <em>Suraksha</em>",
-           "Know how busy each ghat is before you go. Updated from the cameras, in plain words.")
+    if "lang_label" not in st.session_state:
+        st.session_state["lang_label"] = CODES.get(st.query_params.get("lang", "en"), "English")
+    st.radio("Language", list(LANGS), horizontal=True, key="lang_label", label_visibility="collapsed")
+    st.query_params["lang"] = LANGS[st.session_state["lang_label"]]
+    lg = cur_lang()
+    if lg != "en":  # letter-spacing and capitals break Devanagari conjuncts
+        st.markdown("<style>.top,.lab,.kick,.ts,.ends,.chips,.legend{letter-spacing:0!important;"
+                    "text-transform:none!important}</style>", unsafe_allow_html=True)
+    header(live, tt(lg, "kicker"), "सिंहस्थ <em>Suraksha</em>", tt(lg, "blurb"), top=tt(lg, "top"))
     staff_login()
     pilgrim_view(store)
