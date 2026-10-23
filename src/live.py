@@ -13,6 +13,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from .geo import coarse_grid
 from .heatmap import colorize_density, overlay_heatmap
 from .predict import predict
 from .risk import density_from_count, level_for_density, load_thresholds
@@ -45,7 +46,7 @@ def _shrink(img, max_w=900):
 
 
 def build_record(img_rgb, zone, area, thresholds, name="", predict_fn=None, ts=None, camera="Camera 1",
-                 ignore_top=0.0):
+                 ignore_top=0.0, geo=None):
     """Run the model on one RGB frame and return a record (with image arrays).
 
     `ignore_top` (0..0.95) drops the top fraction of the frame from the count. Use it for sky and
@@ -53,6 +54,7 @@ def build_record(img_rgb, zone, area, thresholds, name="", predict_fn=None, ts=N
     `area` must then be the ground area of the part that is kept.
     """
     count, dens_map = (predict_fn or predict)(img_rgb)
+    dens_map = np.asarray(dens_map, dtype=np.float32)
     ignore_top = min(max(float(ignore_top), 0.0), 0.95)
     rows = int(round(dens_map.shape[0] * ignore_top))
     if rows:
@@ -60,6 +62,7 @@ def build_record(img_rgb, zone, area, thresholds, name="", predict_fn=None, ts=N
         dens_map[:rows] = 0.0
         count = float(dens_map.sum())
     density = density_from_count(count, area)
+    grid = coarse_grid(dens_map, rows)
     small = _shrink(img_rgb)
     overlay = overlay_heatmap(small, dens_map, colormap=HEAT_LUT, alpha=0.8, min_fraction=0.0,
                               gamma=HEAT_GAMMA, ref=HEAT_REF)
@@ -67,7 +70,7 @@ def build_record(img_rgb, zone, area, thresholds, name="", predict_fn=None, ts=N
         cut = int(round(small.shape[0] * ignore_top))
         overlay[:cut] = (overlay[:cut] * 0.35).astype(np.uint8)
     return {
-        "zone": zone, "camera": camera, "name": name, "ignore_top": ignore_top, "ts": ts or datetime.now(), "area": float(area),
+        "zone": zone, "camera": camera, "name": name, "ignore_top": ignore_top, "geo": geo, "grid": grid.tolist(), "ts": ts or datetime.now(), "area": float(area),
         "count": float(count), "density": density, "level": level_for_density(density, thresholds),
         "original": small,
         "overlay": overlay,
@@ -148,6 +151,9 @@ class LiveStore:
     def _img_path(self, zone, camera, kind):
         return self.root / ("%s__%s_%s.jpg" % (_slug(zone), _slug(camera), kind))
 
+    def _grid_path(self, zone, camera):
+        return self.root / ("%s__%s_grid.json" % (_slug(zone), _slug(camera)))
+
     def _latest_by_camera(self):
         latest = {}
         for r in self._read_lines(self._records, MAX_RECORDS):
@@ -162,6 +168,8 @@ class LiveStore:
         before = zone_summary(self._latest_by_camera(), thresholds).get(rec["zone"])
         for kind in IMAGE_KINDS:
             _write_jpeg(self._img_path(rec["zone"], rec["camera"], kind), rec[kind])
+        self._grid_path(rec["zone"], rec["camera"]).write_text(
+            json.dumps({"grid": rec.get("grid"), "geo": rec.get("geo")}))
         self._append(self._records, _numbers(rec))
         after = zone_summary(self._latest_by_camera(), thresholds)[rec["zone"]]
         if before and before["level"] != after["level"]:
@@ -184,9 +192,14 @@ class LiveStore:
         for (zone, cam), r in cams.items():
             for kind in IMAGE_KINDS:
                 r[kind] = _read_jpeg(self._img_path(zone, cam, kind))
+            try:
+                extra = json.loads(self._grid_path(zone, cam).read_text())
+            except (OSError, ValueError):
+                extra = {}
+            r["grid"], r["geo"] = extra.get("grid"), extra.get("geo")
         return rows, self._read_lines(self._alerts, 100), cams
 
     def clear(self):
         for p in self.root.glob("*"):
-            if p.suffix in (".jpg", ".jsonl"):
+            if p.suffix in (".jpg", ".jsonl", ".json"):
                 p.unlink()

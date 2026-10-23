@@ -91,6 +91,12 @@ A zone can have several camera angles. Each angle keeps its own latest photo and
 risk level uses the total people over the total area of its angles, so one busy corner does not hide a quiet
 one. Uploading again to the same angle replaces only that angle.
 
+Each camera angle can be placed on the map (centre point, compass direction, width of the ground). The
+"On the map" view then draws that ground as small cells coloured by people per square metre: green for low,
+amber and orange for medium and high, red for critical. It is a flat top-down approximation (no perspective
+correction), meant to show where in the area it is crowded. Staff can also mask the top of the photo
+(sky, buildings) because the model can mistake repeating carvings for a crowd.
+
 ### Camera ingest
 
 `python -m src.ingest --config config/cameras.yaml` polls each camera (snapshot URL, RTSP stream,

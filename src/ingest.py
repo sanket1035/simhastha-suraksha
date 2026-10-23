@@ -32,6 +32,13 @@ def load_cameras(path):
     return cams
 
 
+def _geo(c):
+    if "lat" in c and "lon" in c:
+        return {"lat": float(c["lat"]), "lon": float(c["lon"]), "bearing": float(c.get("bearing", 0)),
+                "width_m": float(c.get("width_m", c["area_m2"] ** 0.5))}
+    return None
+
+
 def grab_frame(source, timeout=10):
     """Return one RGB frame (HxWx3 uint8) from a snapshot URL, stream, video file or image folder."""
     if source.startswith(("http://", "https://")) and Path(source.split("?")[0]).suffix.lower() in IMG_EXT | {""}:
@@ -67,7 +74,8 @@ def run_once(cameras, store, thresholds, grab=grab_frame, log=print, predict_fn=
         try:
             rec = build_record(grab(c["source"]), c["zone"], c["area_m2"], thresholds, name=c["source"],
                                predict_fn=predict_fn, camera=c.get("camera", Path(c["source"]).name or c["source"]),
-                               ignore_top=c.get("ignore_top", 0.0))
+                               ignore_top=c.get("ignore_top", 0.0),
+                               geo=_geo(c))
             store.add(rec, thresholds)
             done += 1
             log("%s / %s: %d people, %s" % (c["zone"], rec["camera"], round(rec["count"]), rec["level"]))
